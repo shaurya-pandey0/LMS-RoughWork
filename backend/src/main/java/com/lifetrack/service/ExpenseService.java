@@ -1,7 +1,9 @@
 package com.lifetrack.service;
 
+import com.lifetrack.config.ReferenceProperties;
 import com.lifetrack.dto.ExpenseDtos.ExpenseRequest;
 import com.lifetrack.entity.Expense;
+import com.lifetrack.exception.BadRequestException;
 import com.lifetrack.exception.ResourceNotFoundException;
 import com.lifetrack.repository.ExpenseRepository;
 import org.springframework.stereotype.Service;
@@ -13,9 +15,11 @@ import java.util.List;
 public class ExpenseService {
 
     private final ExpenseRepository expenseRepository;
+    private final ReferenceProperties referenceProperties;
 
-    public ExpenseService(ExpenseRepository expenseRepository) {
+    public ExpenseService(ExpenseRepository expenseRepository, ReferenceProperties referenceProperties) {
         this.expenseRepository = expenseRepository;
+        this.referenceProperties = referenceProperties;
     }
 
     public List<Expense> findAll(Long userId) {
@@ -46,6 +50,11 @@ public class ExpenseService {
     }
 
     private void apply(Expense expense, ExpenseRequest request) {
+        if (!referenceProperties.isValidExpenseCategory(request.category())) {
+            throw new BadRequestException(
+                    "Unknown expense category: " + request.category()
+                            + ". Valid categories: " + referenceProperties.getExpenseCategories());
+        }
         expense.setDate(request.date() != null ? request.date() : LocalDate.now());
         expense.setCategory(request.category());
         expense.setAmount(request.amount());

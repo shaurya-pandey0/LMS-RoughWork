@@ -14,8 +14,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.lifetrack.entity.DailyLog;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,11 +33,31 @@ public class DailyLogController {
     }
 
     @GetMapping
-    public List<DailyLogResponse> list() {
+    public List<DailyLogResponse> list(
+            @RequestParam(required = false) LocalDate date,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
         Long userId = SecurityUtils.currentUserId();
-        return dailyLogService.findAll(userId).stream()
+        List<DailyLog> logs;
+        if (date != null) {
+            logs = dailyLogService.findByDate(userId, date)
+                    .map(List::of)
+                    .orElseGet(List::of);
+        } else if (from != null && to != null) {
+            logs = dailyLogService.findByDateRange(userId, from, to);
+        } else {
+            logs = dailyLogService.findAll(userId);
+        }
+        return logs.stream().map(DailyLogResponse::from).collect(Collectors.toList());
+    }
+
+    /** Convenience for "load today's log if it exists" — avoids fetching everything client-side. */
+    @GetMapping("/today")
+    public ResponseEntity<DailyLogResponse> today() {
+        return dailyLogService.findByDate(SecurityUtils.currentUserId(), LocalDate.now())
                 .map(DailyLogResponse::from)
-                .collect(Collectors.toList());
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/{id}")

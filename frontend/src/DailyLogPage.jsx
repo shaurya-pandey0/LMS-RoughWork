@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import './styles/daily-log.css';
 import { dailyLogApi } from './lib/api.js';
 import Sidebar from './components/Sidebar';
+import { useReference, moodDisplay } from './lib/reference.jsx';
 
 /* ── Inline SVG icons for sidebar nav ── */
 
@@ -79,29 +80,21 @@ const DEFAULT_MEALS = [
   { id: 4, name: 'Snacks', items: ['Fruit'] },
 ];
 
-const TRANSACTIONAL_HABITS = [
-  'Drink Water Before Coffee',
-  'Meditation (10 min)',
-  'Steps Goal Met',
-  'Journal Entry Written',
-];
+/* Habit catalogs and mood vocabulary come from the backend
+   (/api/reference) — see lib/reference.jsx. */
 
-const EMBEDDED_HABITS = [
-  'Drink Water Before Coffee',
-  'Meditation (10 min)',
-  'Steps Goal Met',
-  'Journal Entry Written',
-  'Evening Stretch',
-];
-
-const MOOD_OPTIONS = [
-  { value: '', label: 'Select mood…' },
-  { value: 'great', label: '😊 Great' },
-  { value: 'good', label: '🙂 Good' },
-  { value: 'okay', label: '😐 Okay' },
-  { value: 'meh', label: '😕 Meh' },
-  { value: 'bad', label: '😞 Bad' },
-];
+/* Mood <option> list built from the backend vocabulary. */
+function MoodOptions({ moods }) {
+  return (
+    <>
+      <option value="">Select mood…</option>
+      {moods.map((m) => {
+        const { emoji, label } = moodDisplay(m);
+        return <option key={m} value={m}>{emoji} {label}</option>;
+      })}
+    </>
+  );
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -120,6 +113,8 @@ function listFromChecklist(checked) {
 
 
 export default function DailyLogPage() {
+  const { transactionalHabits, embeddedHabits, dailyMoods } = useReference();
+
   /* Activity Metrics */
   const [sleepHours, setSleepHours] = useState('');
   const [stepTarget, setStepTarget] = useState('');
@@ -140,10 +135,10 @@ export default function DailyLogPage() {
   const [newMealName, setNewMealName] = useState('');
   const addMealInputRef = useRef(null);
 
-  /* Moods */
-  const [morningMood, setMorningMood] = useState('great');
-  const [afternoonMood, setAfternoonMood] = useState('okay');
-  const [eveningMood, setEveningMood] = useState('great');
+  /* Moods — empty means "not set"; valid values come from the backend. */
+  const [morningMood, setMorningMood] = useState('');
+  const [afternoonMood, setAfternoonMood] = useState('');
+  const [eveningMood, setEveningMood] = useState('');
 
   /* Persistence */
   const [logId, setLogId] = useState(null);
@@ -152,14 +147,13 @@ export default function DailyLogPage() {
   const [saveError, setSaveError] = useState('');
   const [saveOk, setSaveOk] = useState(false);
 
-  // Load today's existing log (if any) on mount so the form is editable.
+  // Load today's existing log (if any) so the form edits rather than overwrites.
+  // The backend resolves "today" for us — no need to download every log.
   useEffect(() => {
     let cancelled = false;
-    dailyLogApi.list()
-      .then((logs) => {
+    dailyLogApi.today()
+      .then((todays) => {
         if (cancelled) return;
-        const iso = todayIso();
-        const todays = (logs || []).find((l) => l.date === iso);
         if (todays) {
           setLogId(todays.id);
           if (todays.sleepHours != null) setSleepHours(String(todays.sleepHours));
@@ -348,7 +342,7 @@ export default function DailyLogPage() {
               {/* Transactional Habits */}
               <h3 className="daily-log-card__section-title">Transactional</h3>
               <div className="checklist" id="transactional-checklist">
-                {TRANSACTIONAL_HABITS.map((habit) => (
+                {transactionalHabits.map((habit) => (
                   <label
                     key={habit}
                     className={`checklist__item ${transChecked[habit] ? 'checklist__item--checked' : ''}`}
@@ -457,7 +451,7 @@ export default function DailyLogPage() {
               <div className="card" id="card-embedded-habits">
                 <h2 className="daily-log-card__title">Embedded Habits</h2>
                 <div className="checklist" id="embedded-checklist">
-                  {EMBEDDED_HABITS.map((habit) => (
+                  {embeddedHabits.map((habit) => (
                     <label
                       key={habit}
                       className={`checklist__item ${embeddedChecked[habit] ? 'checklist__item--checked' : ''}`}
@@ -486,9 +480,7 @@ export default function DailyLogPage() {
                       value={morningMood}
                       onChange={(e) => setMorningMood(e.target.value)}
                     >
-                      {MOOD_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
+                      <MoodOptions moods={dailyMoods} />
                     </select>
                   </div>
                   <div className="mood-item">
@@ -499,9 +491,7 @@ export default function DailyLogPage() {
                       value={afternoonMood}
                       onChange={(e) => setAfternoonMood(e.target.value)}
                     >
-                      {MOOD_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
+                      <MoodOptions moods={dailyMoods} />
                     </select>
                   </div>
                   <div className="mood-item">
@@ -512,9 +502,7 @@ export default function DailyLogPage() {
                       value={eveningMood}
                       onChange={(e) => setEveningMood(e.target.value)}
                     >
-                      {MOOD_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
+                      <MoodOptions moods={dailyMoods} />
                     </select>
                   </div>
                 </div>

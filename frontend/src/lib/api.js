@@ -92,6 +92,9 @@ export const authApi = {
 
 export const dailyLogApi = {
   list: () => api.get('/daily-logs'),
+  // Returns null (204) when nothing is logged for today yet.
+  today: () => api.get('/daily-logs/today'),
+  byDate: (date) => api.get(`/daily-logs?date=${date}`),
   get: (id) => api.get(`/daily-logs/${id}`),
   upsert: (data) => api.post('/daily-logs', data),
   update: (id, data) => api.put(`/daily-logs/${id}`, data),
@@ -123,6 +126,23 @@ export const insightsApi = {
 export const adminApi = {
   stats: () => api.get('/admin/stats'),
   users: () => api.get('/admin/users'),
+};
+
+// Domain vocabulary (categories, habit catalogs, moods) — backend owns these.
+export const referenceApi = {
+  get: () => api.get('/reference'),
+};
+
+// Per-user targets (monthly budget, sleep/step/water targets).
+export const settingsApi = {
+  get: () => api.get('/settings'),
+  update: (data) => api.put('/settings', data),
+};
+
+// Aggregated lifestyle context for the AI service. Built by Spring so the
+// browser never assembles domain data or names whose context to read.
+export const aiContextApi = {
+  get: (days) => api.get(days ? `/ai-context?days=${days}` : '/ai-context'),
 };
 
 // ---- AI microservice (separate FastAPI service, no JWT in dev) -------------

@@ -1,7 +1,9 @@
 package com.lifetrack.service;
 
+import com.lifetrack.config.ReferenceProperties;
 import com.lifetrack.dto.JournalDtos.JournalRequest;
 import com.lifetrack.entity.JournalEntry;
+import com.lifetrack.exception.BadRequestException;
 import com.lifetrack.exception.ResourceNotFoundException;
 import com.lifetrack.repository.JournalEntryRepository;
 import org.springframework.stereotype.Service;
@@ -14,9 +16,11 @@ import java.util.List;
 public class JournalService {
 
     private final JournalEntryRepository journalEntryRepository;
+    private final ReferenceProperties referenceProperties;
 
-    public JournalService(JournalEntryRepository journalEntryRepository) {
+    public JournalService(JournalEntryRepository journalEntryRepository, ReferenceProperties referenceProperties) {
         this.journalEntryRepository = journalEntryRepository;
+        this.referenceProperties = referenceProperties;
     }
 
     public List<JournalEntry> findAll(Long userId) {
@@ -50,6 +54,11 @@ public class JournalService {
     }
 
     private void apply(JournalEntry entry, JournalRequest request) {
+        if (!referenceProperties.isValidJournalMood(request.mood())) {
+            throw new BadRequestException(
+                    "Unknown journal mood: " + request.mood()
+                            + ". Valid moods: " + referenceProperties.getJournalMoods());
+        }
         entry.setDate(request.date() != null ? request.date() : LocalDate.now());
         entry.setMood(request.mood());
         entry.setText(request.text());

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import botanicalShadow from './assets/botanical-shadow.png';
-import { analyticsApi, insightsApi, aiApi } from './lib/api.js';
+import { analyticsApi, insightsApi, aiApi, aiContextApi } from './lib/api.js';
 import { useAuth } from './lib/auth.jsx';
+import { useReference, colorForCategory } from './lib/reference.jsx';
 
 /* ─── Semi-circle gauge ─────────────────────────────────── */
 function Gauge({ pct, color, icon }) {
@@ -57,14 +58,6 @@ function DonutChart({ segments }) {
 }
 
 /* ─── Dashboard ─────────────────────────────────────────── */
-const CATEGORY_COLOR = {
-  Food: '#7E9469',
-  Wellness: '#A9B894',
-  Housing: '#D2C4B4',
-  Travel: '#B5734F',
-  Misc: '#F2EBE3',
-};
-
 function weekdayShort(iso) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
@@ -80,6 +73,9 @@ function initialsFor(name) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { settings } = useReference();
+  // Sleep target comes from the user's settings, not a constant in a chart.
+  const sleepTarget = settings?.sleepTargetHours || 8;
   const [activeNav, setActiveNav] = useState('Overview');
   const [summary, setSummary] = useState(null);
   const [insights, setInsights] = useState(null);
@@ -95,18 +91,24 @@ export default function DashboardPage() {
     setAiError('');
     setAiLoading(true);
     try {
-      const ctx = {
-        period_days: 7,
-        avg_sleep_hours: summary?.weeklySleep?.length
-          ? summary.weeklySleep.reduce((s, p) => s + (p.hours || 0), 0) / summary.weeklySleep.length
-          : null,
-        weekly_spend: summary?.totalExpenses ?? null,
-        expenses_by_category: summary?.expensesByCategory || {},
-        mood_counts: summary?.moodCounts || {},
-      };
+      // Spring computes the context; the dashboard just relays it.
+      const ctx = await aiContextApi.get(7);
       const res = await aiApi.insights({
         user_name: user?.fullName,
-        context: ctx,
+        context: {
+          period_days: ctx.periodDays,
+          avg_sleep_hours: ctx.avgSleepHours ?? undefined,
+          min_sleep_hours: ctx.minSleepHours,
+          good_sleep_hours: ctx.goodSleepHours,
+          weekly_spend: ctx.weeklySpend ?? undefined,
+          spend_threshold: ctx.spendThreshold,
+          expenses_by_category: ctx.expensesByCategory || {},
+          avg_water_ml: ctx.avgWaterMl ?? undefined,
+          min_water_ml: ctx.minWaterMl,
+          habit_consistency: ctx.habitConsistency ?? undefined,
+          habit_consistency_threshold: ctx.habitConsistencyThreshold,
+          mood_counts: ctx.moodCounts || {},
+        },
         use_ai: true,
       });
       setAiInsights(res);
@@ -143,9 +145,9 @@ export default function DashboardPage() {
     return points.map((p) => ({
       day: weekdayShort(p.date),
       hours: p.hours ?? 0,
-      pct: Math.min(((p.hours ?? 0) / 8) * 100, 100),
+      pct: Math.min(((p.hours ?? 0) / sleepTarget) * 100, 100),
     }));
-  }, [summary]);
+  }, [summary, sleepTarget]);
 
   // Backend expensesByCategory -> donut segments.
   const donutSegments = useMemo(() => {
@@ -157,7 +159,7 @@ export default function DashboardPage() {
     return Object.entries(byCat).map(([label, value]) => ({
       label,
       pct: Math.round((value / total) * 100),
-      color: CATEGORY_COLOR[label] || '#C9BFB4',
+      color: colorForCategory(label),
     }));
   }, [summary]);
 
@@ -449,7 +451,7 @@ export default function DashboardPage() {
                     className="btn btn--ghost"
                     style={{ fontSize: 'var(--text-xs)', padding: 'var(--space-1) var(--space-2)' }}
                     onClick={runAiInsights}
-                    disabled={aiLoading || !summary}
+                    disabled={aiLoading}
                     title="Generate richer insights with the AI service"
                   >
                     {aiLoading ? 'Thinking…' : '✨ AI'}

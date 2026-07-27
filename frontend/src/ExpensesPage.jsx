@@ -2,17 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import './styles/expenses.css';
 import { expenseApi } from './lib/api.js';
+import { useReference, colorForCategory } from './lib/reference.jsx';
 
-/* ── Category config (color-coded) ── */
-const CATEGORIES = [
-  { id: 'Food',     color: '#7E9469' },
-  { id: 'Housing',  color: '#D2C4B4' },
-  { id: 'Travel',   color: '#B5734F' },
-  { id: 'Wellness', color: '#A9B894' },
-  { id: 'Misc',     color: '#E6DCD0' },
-];
-
-const CAT_COLOR = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.color]));
+/* Category list comes from the backend (/api/reference); only the colour
+   mapping lives here, since that's presentation. */
 
 /* ── Category icons ── */
 function CatIcon({ category }) {
@@ -88,8 +81,6 @@ function DonutChart({ segments }) {
 /* ── Seed data ── */
 const INITIAL_TXNS = [];
 
-const MONTHLY_BUDGET = 4000;
-
 const TOPNAV_LINKS = ['Overview', 'History', 'Profile', 'Insights'];
 
 /* Friendly "Dec 27"-style label from an ISO yyyy-mm-dd. */
@@ -105,10 +96,18 @@ function todayIso() {
 }
 
 export default function ExpensesPage() {
+  const { expenseCategories, settings } = useReference();
+  const monthlyBudget = settings?.monthlyBudget ?? 0;
+
   const [txns, setTxns] = useState(INITIAL_TXNS);
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState('');
-  const [category, setCategory] = useState('Food');
+  // '' means "not chosen yet" — we fall back to the first backend category at
+  // render/submit time rather than syncing state in an effect.
+  const [categoryChoice, setCategoryChoice] = useState('');
+  const defaultCategory = () => expenseCategories[0] || '';
+  const category = categoryChoice || defaultCategory();
+  const setCategory = setCategoryChoice;
   const [activeTab, setActiveTab] = useState('Overview');
   const [editingId, setEditingId] = useState(null);
   const [amountError, setAmountError] = useState('');
@@ -161,7 +160,7 @@ export default function ExpensesPage() {
       }
       setAmount('');
       setDate('');
-      setCategory('Food');
+      setCategory(defaultCategory());
     } catch (err) {
       setPageError(err.message || 'Could not save that expense');
     }
@@ -181,7 +180,7 @@ export default function ExpensesPage() {
     setEditingId(null);
     setAmount('');
     setDate('');
-    setCategory('Food');
+    setCategory(defaultCategory());
     setAmountError('');
   };
 
@@ -192,7 +191,7 @@ export default function ExpensesPage() {
       setEditingId(null);
       setAmount('');
       setDate('');
-      setCategory('Food');
+      setCategory(defaultCategory());
     }
     try {
       await expenseApi.remove(id);
@@ -205,14 +204,14 @@ export default function ExpensesPage() {
   const total = useMemo(() => txns.reduce((s, t) => s + t.amount, 0), [txns]);
 
   const segments = useMemo(() => {
-    return CATEGORIES.map((c) => ({
-      label: c.id,
-      color: c.color,
-      value: txns.filter((t) => t.category === c.id).reduce((s, t) => s + t.amount, 0),
+    return expenseCategories.map((c) => ({
+      label: c,
+      color: colorForCategory(c),
+      value: txns.filter((t) => t.category === c).reduce((s, t) => s + t.amount, 0),
     })).filter((s) => s.value > 0);
-  }, [txns]);
+  }, [txns, expenseCategories]);
 
-  const spendPct = Math.min((total / MONTHLY_BUDGET) * 100, 100);
+  const spendPct = monthlyBudget > 0 ? Math.min((total / monthlyBudget) * 100, 100) : 0;
   const fmtMoney = (n) =>
     n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 2)}k` : `$${n.toFixed(2)}`;
 
@@ -298,17 +297,17 @@ export default function ExpensesPage() {
               <div className="entry-field">
                 <label className="entry-field__label">Category Filter</label>
                 <div className="category-list" role="radiogroup" aria-label="Category">
-                  {CATEGORIES.map((c) => (
+                  {expenseCategories.map((c) => (
                     <button
-                      key={c.id}
+                      key={c}
                       type="button"
                       role="radio"
-                      aria-checked={category === c.id}
-                      className={`category-list__item${category === c.id ? ' category-list__item--active' : ''}`}
-                      onClick={() => setCategory(c.id)}
+                      aria-checked={category === c}
+                      className={`category-list__item${category === c ? ' category-list__item--active' : ''}`}
+                      onClick={() => setCategory(c)}
                     >
-                      <span className="category-list__dot" style={{ background: c.color }} />
-                      {c.id}
+                      <span className="category-list__dot" style={{ background: colorForCategory(c) }} />
+                      {c}
                     </button>
                   ))}
                 </div>
@@ -346,7 +345,7 @@ export default function ExpensesPage() {
                 ) : (
                   txns.map((t) => (
                     <div className="txn-pill" key={t.id} style={{ outline: editingId === t.id ? '2px solid var(--clay-300)' : 'none' }}>
-                      <span className="txn-pill__icon" style={{ background: CAT_COLOR[t.category], color: '#fff' }}>
+                      <span className="txn-pill__icon" style={{ background: colorForCategory(t.category), color: '#fff' }}>
                         <CatIcon category={t.category} />
                       </span>
                       <span className="txn-pill__date">{t.date}</span>
@@ -387,13 +386,13 @@ export default function ExpensesPage() {
               </div>
 
               <div className="breakdown__legend">
-                {CATEGORIES.map((c) => {
-                  const value = txns.filter((t) => t.category === c.id).reduce((s, t) => s + t.amount, 0);
+                {expenseCategories.map((c) => {
+                  const value = txns.filter((t) => t.category === c).reduce((s, t) => s + t.amount, 0);
                   const pct = total ? (value / total) * 100 : 0;
                   return (
-                    <div className="breakdown__legend-item" key={c.id}>
-                      <span className="breakdown__legend-swatch" style={{ background: c.color }} />
-                      {c.id}
+                    <div className="breakdown__legend-item" key={c}>
+                      <span className="breakdown__legend-swatch" style={{ background: colorForCategory(c) }} />
+                      {c}
                       <span className="breakdown__legend-pct">{pct.toFixed(0)}%</span>
                     </div>
                   );

@@ -1,19 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import './styles/journal.css';
-import { journalApi, aiApi } from './lib/api.js';
+import { journalApi, aiApi, aiContextApi } from './lib/api.js';
 import { useAuth } from './lib/auth.jsx';
+import { useReference, moodDisplay } from './lib/reference.jsx';
 
-/* ── Mood options ── */
-const MOODS = [
-  { id: 'happy',    emoji: '😄', label: 'Happy' },
-  { id: 'calm',     emoji: '😌', label: 'Calm' },
-  { id: 'anxious',  emoji: '😢', label: 'Anxious' },
-  { id: 'grateful', emoji: '❤️', label: 'Grateful' },
-  { id: 'tired',    emoji: '😪', label: 'Tired' },
-];
-
-const MOOD_BY_ID = Object.fromEntries(MOODS.map((m) => [m.id, m]));
+/* Mood vocabulary comes from the backend (/api/reference); only the
+   emoji/label chrome is presentation — see lib/reference.jsx. */
 
 const TOPNAV_LINKS = ['Overview', 'History', 'Profile', 'Insights'];
 
@@ -32,24 +25,38 @@ function todayIso() {
 /* ── Seed journal entries ── */
 const INITIAL_ENTRIES = [];
 
-/* ── Build a grounding context from the user's journal entries ── */
-function buildContext(entries) {
-  const moodCounts = {};
-  for (const e of entries) {
-    if (e.mood) moodCounts[e.mood] = (moodCounts[e.mood] || 0) + 1;
-  }
+/* Map Spring's /api/ai-context response onto the AI service's snake_case
+   LifestyleContext shape. The browser no longer derives any of these numbers —
+   it just relays what the backend computed. */
+function toAiContext(ctx) {
+  if (!ctx) return null;
   return {
-    period_days: 30,
-    mood_counts: moodCounts,
-    journal_excerpts: entries.slice(0, 10).map((e) => e.text).filter(Boolean),
+    period_days: ctx.periodDays,
+    avg_sleep_hours: ctx.avgSleepHours ?? undefined,
+    min_sleep_hours: ctx.minSleepHours,
+    good_sleep_hours: ctx.goodSleepHours,
+    weekly_spend: ctx.weeklySpend ?? undefined,
+    spend_threshold: ctx.spendThreshold,
+    expenses_by_category: ctx.expensesByCategory || {},
+    avg_water_ml: ctx.avgWaterMl ?? undefined,
+    min_water_ml: ctx.minWaterMl,
+    habit_consistency: ctx.habitConsistency ?? undefined,
+    habit_consistency_threshold: ctx.habitConsistencyThreshold,
+    mood_counts: ctx.moodCounts || {},
+    journal_excerpts: ctx.journalExcerpts || [],
   };
 }
 
 export default function JournalPage() {
   const { user } = useAuth();
+  const { journalMoods } = useReference();
   const [activeTab, setActiveTab] = useState('Overview');
   const [draft, setDraft] = useState('');
-  const [mood, setMood] = useState('happy');
+  // '' means "not chosen yet" — resolved to the first backend mood at render
+  // time instead of syncing state in an effect.
+  const [moodChoice, setMoodChoice] = useState('');
+  const mood = moodChoice || journalMoods[0] || '';
+  const setMood = setMoodChoice;
   const [entries, setEntries] = useState(INITIAL_ENTRIES);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +84,8 @@ export default function JournalPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+
 
   const [chat, setChat] = useState([
     { from: 'bot', text: 'Ask me about your lifestyle — sleep, mood, habits, or spending. I read your recent journal entries for context.' },
@@ -119,7 +128,7 @@ export default function JournalPage() {
         }, ...prev]);
       }
       setDraft('');
-      setMood('happy');
+      setMood('');
     } catch (err) {
       setSaveError(err.message || 'Could not save your entry');
     } finally {
@@ -137,7 +146,7 @@ export default function JournalPage() {
   const deleteEntry = async (id) => {
     const snapshot = entries;
     setEntries((prev) => prev.filter((e) => e.id !== id));
-    if (editingId === id) { setEditingId(null); setDraft(''); setMood('happy'); }
+    if (editingId === id) { setEditingId(null); setDraft(''); setMood(''); }
     try {
       await journalApi.remove(id);
     } catch (err) {
@@ -161,13 +170,15 @@ export default function JournalPage() {
     setBotTyping(true);
 
     try {
+      // Spring builds the grounding context from the authenticated user's own
+      // data; the browser never assembles it or names whose data to read.
+      const springContext = await aiContextApi.get(30).catch(() => null);
       const res = await aiApi.chat({
         query: text,
-        context: buildContext(entries),
+        context: toAiContext(springContext) || undefined,
         history,
         context_mode: 'full',
         user_name: user?.fullName || undefined,
-        user_key: user?.id || user?.email || undefined,
       });
       setChat((prev) => [...prev, { from: 'bot', text: res.reply }]);
     } catch {
@@ -230,19 +241,22 @@ export default function JournalPage() {
 
               <p className="journal__mood-prompt">Select your daily mood…</p>
               <div className="mood-pills" role="radiogroup" aria-label="Daily mood">
-                {MOODS.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={mood === m.id}
-                    className={`mood-pill${mood === m.id ? ' mood-pill--active' : ''}`}
-                    onClick={() => setMood(m.id)}
-                  >
-                    <span className="mood-pill__emoji">{m.emoji}</span>
-                    <span className="mood-pill__label">{m.label}</span>
-                  </button>
-                ))}
+                {journalMoods.map((id) => {
+                  const { emoji, label } = moodDisplay(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={mood === id}
+                      className={`mood-pill${mood === id ? ' mood-pill--active' : ''}`}
+                      onClick={() => setMood(id)}
+                    >
+                      <span className="mood-pill__emoji">{emoji}</span>
+                      <span className="mood-pill__label">{label}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               <button className="btn btn--primary btn--full" id="btn-save-entry" onClick={saveEntry} disabled={saving}>
@@ -269,7 +283,7 @@ export default function JournalPage() {
                   <div className="txn-empty">No reflections yet — write your first one on the left.</div>
                 )}
                 {entries.map((e) => {
-                  const m = MOOD_BY_ID[e.mood] || MOODS[0];
+                  const m = moodDisplay(e.mood);
                   return (
                     <div className="journal-entry" key={e.id}>
                       <div className="journal-entry__icon" title={m.label}>
