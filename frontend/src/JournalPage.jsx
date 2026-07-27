@@ -8,8 +8,6 @@ import { useReference, moodDisplay } from './lib/reference.jsx';
 /* Mood vocabulary comes from the backend (/api/reference); only the
    emoji/label chrome is presentation — see lib/reference.jsx. */
 
-const TOPNAV_LINKS = ['Overview', 'History', 'Profile', 'Insights'];
-
 /* Format an ISO yyyy-mm-dd date into the page's display format. */
 function formatDate(iso) {
   if (!iso) return '';
@@ -50,7 +48,6 @@ function toAiContext(ctx) {
 export default function JournalPage() {
   const { user } = useAuth();
   const { journalMoods } = useReference();
-  const [activeTab, setActiveTab] = useState('Overview');
   const [draft, setDraft] = useState('');
   // '' means "not chosen yet" — resolved to the first backend mood at render
   // time instead of syncing state in an effect.
@@ -206,17 +203,6 @@ export default function JournalPage() {
               </svg>
               <span className="sidebar__logo-text">LifeTrack</span>
             </div>
-            <nav className="journal__topnav">
-              {TOPNAV_LINKS.map((link) => (
-                <button
-                  key={link}
-                  className={`journal__topnav-link${activeTab === link ? ' journal__topnav-link--active' : ''}`}
-                  onClick={() => setActiveTab(link)}
-                >
-                  {link}
-                </button>
-              ))}
-            </nav>
             <button
               className="btn btn--primary"
               id="btn-create-entry"

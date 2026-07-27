@@ -48,11 +48,7 @@ function LineAreaChart({ data, yLabels, max }) {
   );
 }
 
-const RANGES = { 'Last 7 Days': 7, 'Last 30 Days': 30, 'Last 90 Days': 90 };
-
 export default function AnalyticsPage() {
-  const [range, setRange] = useState('Last 30 Days');
-
   // Real backend data — the only source of truth for this page.
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -95,39 +91,10 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {/* Master date-range filter — disabled until the backend supports a
-              date-ranged analytics query; showing it as active without wiring
-              would misrepresent what's on screen. */}
-          <div className="range-bar">
-            <span className="range-bar__label">Master Date-Range Filter</span>
-            <div className="range-bar__controls">
-              <select
-                className="range-bar__select"
-                value={range}
-                onChange={(e) => setRange(e.target.value)}
-                aria-label="Select date range (coming soon)"
-                disabled
-                title="Date-range filtering is not available yet"
-              >
-                {Object.keys(RANGES).map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* 2×2 chart grid */}
+          {/* Sleep Duration — the only chart on this page backed by a real
+              endpoint (/api/analytics). Step frequency, habit completion, and
+              expense comparison were removed: no backend data exists for them. */}
           <div className="analytics__grid">
-            {/* Step Frequency — no backend field for actual steps taken yet
-                (DailyLog only stores a target), so there's nothing real to
-                chart here. */}
-            <section className="card" id="card-step-frequency">
-              <div className="chart-card__header">
-                <h2 className="chart-card__title">Step Frequency Bar Chart</h2>
-                <span className="chip chip--clay">Health</span>
-              </div>
-              <div className="txn-empty">No data available yet.</div>
-            </section>
-
-            {/* Sleep Duration — real data from /api/analytics */}
             <section className="card" id="card-sleep-duration">
               <div className="chart-card__header">
                 <h2 className="chart-card__title">Sleep Duration Line Chart</h2>
@@ -146,27 +113,6 @@ export default function AnalyticsPage() {
                   max={12}
                 />
               )}
-            </section>
-
-            {/* Habit Completion — no backend endpoint computes a completion
-                rate against the habit catalog yet. */}
-            <section className="card" id="card-habit-completion">
-              <div className="chart-card__header">
-                <h2 className="chart-card__title">Habit Completion Percentage</h2>
-                <span className="chip chip--clay">Mind Analytics</span>
-              </div>
-              <div className="txn-empty">No data available yet.</div>
-            </section>
-
-            {/* Expense Comparison — /api/analytics returns category totals,
-                not a per-day breakdown this chart needs, so there's nothing
-                real to plot per-day yet. */}
-            <section className="card" id="card-expense-comparison">
-              <div className="chart-card__header">
-                <h2 className="chart-card__title">Categorical Expense Comparison</h2>
-                <span className="chip chip--clay">Finance Analytics</span>
-              </div>
-              <div className="txn-empty">No data available yet.</div>
             </section>
           </div>
         </div>

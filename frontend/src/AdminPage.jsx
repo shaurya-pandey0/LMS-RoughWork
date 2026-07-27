@@ -22,14 +22,6 @@ const ADMIN_NAV = [
       </svg>
     ),
   },
-  {
-    id: 'trends', label: 'Aggregated Trends',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="2 13 7 8 11 11 18 4" /><polyline points="13 4 18 4 18 9" />
-      </svg>
-    ),
-  },
 ];
 
 export default function AdminPage() {

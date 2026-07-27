@@ -81,8 +81,6 @@ function DonutChart({ segments }) {
 /* ── Seed data ── */
 const INITIAL_TXNS = [];
 
-const TOPNAV_LINKS = ['Overview', 'History', 'Profile', 'Insights'];
-
 /* Friendly "Dec 27"-style label from an ISO yyyy-mm-dd. */
 function isoToShort(iso) {
   if (!iso) return '';
@@ -108,7 +106,6 @@ export default function ExpensesPage() {
   const defaultCategory = () => expenseCategories[0] || '';
   const category = categoryChoice || defaultCategory();
   const setCategory = setCategoryChoice;
-  const [activeTab, setActiveTab] = useState('Overview');
   const [editingId, setEditingId] = useState(null);
   const [amountError, setAmountError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -225,22 +222,14 @@ export default function ExpensesPage() {
           {/* Top bar */}
           <div className="expenses__topbar">
             <h1 className="expenses__title">Expenses Page</h1>
-            <nav className="expenses__topnav">
-              {TOPNAV_LINKS.map((link) => (
-                <button
-                  key={link}
-                  className={`expenses__topnav-link${activeTab === link ? ' expenses__topnav-link--active' : ''}`}
-                  onClick={() => setActiveTab(link)}
-                >
-                  {link}
-                </button>
-              ))}
-            </nav>
             <button
               className="btn btn--primary"
               id="btn-log-expense"
               style={{ height: 44, borderRadius: 'var(--radius-md)' }}
-              onClick={() => document.getElementById('entry-amount')?.focus()}
+              onClick={() => {
+                document.getElementById('card-add-entry')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                document.getElementById('entry-amount')?.focus();
+              }}
             >
               Log New Expense
             </button>

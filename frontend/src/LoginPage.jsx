@@ -203,12 +203,6 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {/* Extra Link — Forgot Password */}
-        <div className="text-center mt-4">
-          <a href="#" className="btn btn--ghost text-sm" id="login-forgot-password">
-            Forgot Password?
-          </a>
-        </div>
       </div>
     </div>
   );

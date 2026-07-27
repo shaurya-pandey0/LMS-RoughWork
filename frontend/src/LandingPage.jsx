@@ -284,7 +284,7 @@ export default function LandingPage() {
             }}
           >
             Focus on <strong style={{ color: 'var(--ink-900)', fontWeight: 'var(--weight-semibold)' }}>LifeTrack</strong>,
-            a human-centric AI lifestyle intelligence platform that helps you log,
+            a human-centric lifestyle intelligence platform that helps you log,
             understand, and improve every dimension of your daily life.
           </p>
 
@@ -386,7 +386,7 @@ export default function LandingPage() {
                   </svg>
                 ),
                 title: 'Journal & Reflect',
-                desc: 'Write, reflect and converse with an AI companion that understands your context.',
+                desc: 'Write and reflect on your day. A contextual AI companion is planned for a future release.',
               },
             ].map(({ icon, title, desc }) => (
               <div

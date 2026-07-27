@@ -131,9 +131,6 @@ export default function DailyLogPage() {
   const [addingTo, setAddingTo] = useState(null); // meal id being edited
   const [newItemText, setNewItemText] = useState('');
   const addInputRef = useRef(null);
-  const [addingMeal, setAddingMeal] = useState(false);
-  const [newMealName, setNewMealName] = useState('');
-  const addMealInputRef = useRef(null);
 
   /* Moods — empty means "not set"; valid values come from the backend. */
   const [morningMood, setMorningMood] = useState('');
@@ -235,22 +232,6 @@ export default function DailyLogPage() {
         m.id === mealId ? { ...m, items: m.items.filter((_, i) => i !== idx) } : m
       )
     );
-  };
-
-  const addNewMeal = () => {
-    if (!newMealName.trim()) return;
-    setMeals((prev) => {
-      const nextId = prev.length ? Math.max(...prev.map((m) => m.id)) + 1 : 1;
-      return [...prev, { id: nextId, name: newMealName.trim(), items: [] }];
-    });
-    setNewMealName('');
-    setAddingMeal(false);
-  };
-
-  const startAddingMeal = () => {
-    setAddingMeal(true);
-    setNewMealName('');
-    setTimeout(() => addMealInputRef.current?.focus(), 50);
   };
 
   const startAdding = (mealId) => {
@@ -414,34 +395,6 @@ export default function DailyLogPage() {
                     )}
                   </div>
                 ))}
-
-                {addingMeal ? (
-                  <div className="meal-card__add-row">
-                    <input
-                      ref={addMealInputRef}
-                      type="text"
-                      className="meal-card__add-input"
-                      placeholder="Meal name (e.g. Mid-morning Snack)…"
-                      value={newMealName}
-                      onChange={(e) => setNewMealName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') addNewMeal();
-                        if (e.key === 'Escape') setAddingMeal(false);
-                      }}
-                    />
-                    <button className="meal-card__add-confirm" onClick={addNewMeal}>
-                      Add
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="meal-section__add-btn"
-                    id="add-meal-btn"
-                    onClick={startAddingMeal}
-                  >
-                    + Add Meal
-                  </button>
-                )}
               </div>
             </div>
 
