@@ -5,26 +5,6 @@ import { analyticsApi, insightsApi, aiApi, aiContextApi } from './lib/api.js';
 import { useAuth } from './lib/auth.jsx';
 import { useReference, colorForCategory } from './lib/reference.jsx';
 
-/* ─── Semi-circle gauge ─────────────────────────────────── */
-function Gauge({ pct, color, icon }) {
-  const r = 32;
-  const circ = Math.PI * r; // half circle circumference
-  const dash = (pct / 100) * circ;
-  return (
-    <svg width="80" height="46" viewBox="0 0 80 50">
-      {/* Track */}
-      <path d={`M8,40 A${r},${r} 0 0,1 72,40`}
-        fill="none" stroke="var(--sand-200)" strokeWidth="6" strokeLinecap="round"/>
-      {/* Fill */}
-      <path d={`M8,40 A${r},${r} 0 0,1 72,40`}
-        fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
-        strokeDasharray={`${dash} ${circ}`}/>
-      {/* Icon */}
-      <text x="40" y="44" textAnchor="middle" fontSize="14">{icon}</text>
-    </svg>
-  );
-}
-
 /* ─── Donut chart (SVG) ─────────────────────────────────── */
 function DonutChart({ segments }) {
   const r = 52, cx = 70, cy = 70, strokeW = 22;
@@ -149,6 +129,15 @@ export default function DashboardPage() {
     }));
   }, [summary, sleepTarget]);
 
+  // Most recent day's sleep hours, if any — the only real figure for the
+  // "Today's Stats" chip row.
+  const latestSleepHours = useMemo(() => {
+    const points = summary?.weeklySleep || [];
+    if (!points.length) return null;
+    const last = points[points.length - 1];
+    return typeof last?.hours === 'number' ? last.hours : null;
+  }, [summary]);
+
   // Backend expensesByCategory -> donut segments.
   const donutSegments = useMemo(() => {
     const byCat = summary?.expensesByCategory || {};
@@ -233,24 +222,9 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Health At A Glance */}
-              <div className="card" id="card-health-glance">
-                <div className="card__header">
-                  <h2 className="card__title">Health At A Glance</h2>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)', alignItems: 'center', paddingTop: 'var(--space-2)' }}>
-                  {[
-                    { label: 'Stress Level', pct: 60, color: 'var(--clay-500)', icon: '↑' },
-                    { label: 'Hydration',    pct: 75, color: 'var(--sage-500)', icon: '💧' },
-                    { label: 'Heart Rate',   pct: 80, color: 'var(--clay-600)', icon: '♥' },
-                  ].map(({ label, pct, color, icon }) => (
-                    <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-1)' }}>
-                      <Gauge pct={pct} color={color} icon={icon} />
-                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-800)', fontWeight: 'var(--weight-medium)' }}>{label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* Health At A Glance — removed: Stress Level, Hydration, and
+                  Heart Rate had no backend data source and were hardcoded
+                  (60/75/80). Nothing here to show honestly yet. */}
 
               {/* LifeTrack Compass teaser */}
               <div className="card" id="card-compass">
@@ -272,8 +246,10 @@ export default function DashboardPage() {
                     <circle cx="40" cy="40" r="4" fill="var(--sand-0)" stroke="var(--ink-800)" strokeWidth="1.5"/>
                   </svg>
                 </div>
+                {/* No backend endpoint computes a weekly balance score yet —
+                    showing a fixed "72" here would be fabricated data. */}
                 <p className="text-sm text-secondary" style={{ textAlign: 'center', marginTop: 'var(--space-3)', maxWidth: '100%' }}>
-                  Your weekly balance score is <strong style={{ color: 'var(--clay-500)' }}>72</strong>
+                  Balance score coming soon.
                 </p>
               </div>
             </div>
@@ -495,15 +471,19 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Quick stat chips */}
+              {/* Quick stat chips — only the sleep figure has a real backend
+                  source (/api/analytics weeklySleep, most recent day). Steps,
+                  mood-of-the-day and a goals count have no endpoint yet, so
+                  they're omitted rather than shown as fabricated numbers. */}
               <div className="card" id="card-stats" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 <h2 className="card__title">Today's Stats</h2>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-                  <span className="chip chip--sage">Steps: 8,240</span>
-                  <span className="chip chip--clay">Sleep: 6.8h</span>
-                  <span className="chip chip--info">Mood: Calm</span>
-                  <span className="chip chip--success">Goals: 3/4</span>
-                </div>
+                {latestSleepHours != null ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                    <span className="chip chip--clay">Sleep: {latestSleepHours.toFixed(1)}h</span>
+                  </div>
+                ) : (
+                  <div className="txn-empty">No data available yet.</div>
+                )}
               </div>
             </div>
 

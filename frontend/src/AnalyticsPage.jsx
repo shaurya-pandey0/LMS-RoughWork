@@ -3,45 +3,6 @@ import Sidebar from './components/Sidebar';
 import './styles/analytics.css';
 import { analyticsApi } from './lib/api.js';
 
-/* ── Deterministic pseudo-random so charts are stable ── */
-function seeded(seed) {
-  let s = seed;
-  return () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-}
-
-/* ── Bar chart (single series) ── */
-function BarChart({ data, yLabels, colorA, colorB }) {
-  const max = Math.max(...data.map((d) => d.value));
-  return (
-    <div className="chart-area">
-      <div className="chart-yaxis">
-        {yLabels.map((l) => <span key={l}>{l}</span>)}
-      </div>
-      <div className="chart-plot">
-        <div className="chart-bars">
-          {[0, 25, 50, 75, 100].map((p) => (
-            <div key={p} className="chart-gridline" style={{ bottom: `${p}%` }} />
-          ))}
-          {data.map((d, i) => (
-            <div
-              key={i}
-              className="chart-bar"
-              style={{ height: `${(d.value / max) * 100}%`, background: i % 3 === 0 ? colorA : colorB }}
-              title={`${d.label}: ${d.value.toLocaleString()}`}
-            />
-          ))}
-        </div>
-        <div className="chart-xaxis">
-          {data.map((d, i) => <span key={i}>{i % 3 === 0 ? d.label : ''}</span>)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── Line / area chart ── */
 function LineAreaChart({ data, yLabels, max }) {
   const W = 460, H = 200, padL = 8, padR = 8, padB = 4;
@@ -87,119 +48,36 @@ function LineAreaChart({ data, yLabels, max }) {
   );
 }
 
-/* ── Donut chart ── */
-function DonutChart({ segments }) {
-  const r = 50, cx = 65, cy = 65, strokeW = 22;
-  const circ = 2 * Math.PI * r;
-  const total = segments.reduce((s, x) => s + x.value, 0) || 1;
-  const arcs = [];
-  let offset = 0;
-  for (const seg of segments) {
-    const len = (seg.value / total) * circ;
-    arcs.push({ ...seg, len, offset });
-    offset += len;
-  }
-  return (
-    <svg width="150" height="150" viewBox="0 0 130 130">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--sand-100)" strokeWidth={strokeW} />
-      {arcs.map((seg, i) => (
-        <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={seg.color} strokeWidth={strokeW}
-          strokeDasharray={`${Math.max(seg.len - 2, 0)} ${circ - seg.len + 2}`}
-          strokeDashoffset={-seg.offset + circ * 0.25} strokeLinecap="butt" />
-      ))}
-    </svg>
-  );
-}
-
-/* ── Grouped bar chart ── */
-function GroupedBarChart({ groups, series, yLabels }) {
-  const max = Math.max(...groups.flatMap((g) => g.values));
-  return (
-    <div className="chart-area">
-      <div className="chart-yaxis">{yLabels.map((l) => <span key={l}>{l}</span>)}</div>
-      <div className="chart-plot">
-        <div className="chart-bars">
-          {[0, 25, 50, 75, 100].map((p) => <div key={p} className="chart-gridline" style={{ bottom: `${p}%` }} />)}
-          {groups.map((g, gi) => (
-            <div className="chart-group" key={gi} title={`Day ${g.label}`}>
-              {g.values.map((v, si) => (
-                <div key={si} className="chart-group__bar" style={{ height: `${(v / max) * 100}%`, background: series[si].color }} />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="chart-xaxis">
-          {groups.map((g, i) => <span key={i}>{i % 3 === 0 ? g.label : ''}</span>)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Data generators ── */
 const RANGES = { 'Last 7 Days': 7, 'Last 30 Days': 30, 'Last 90 Days': 90 };
-
-function buildData(days) {
-  const rand = seeded(days * 7 + 13);
-  const stepData = Array.from({ length: days }, (_, i) => ({
-    label: `D${i + 1}`,
-    value: Math.round(40000 + rand() * 70000),
-  }));
-  const sleepData = Array.from({ length: days }, (_, i) => ({
-    label: `D${i + 1}`,
-    value: +(6 + rand() * 4).toFixed(1),
-  }));
-  const expenseSeries = [
-    { label: 'Food', color: '#7E9469' },
-    { label: 'Travel', color: '#B5734F' },
-    { label: 'Housing', color: '#D2C4B4' },
-    { label: 'Wellness', color: '#A9B894' },
-  ];
-  const expenseGroups = Array.from({ length: Math.min(days, 30) }, (_, i) => ({
-    label: `${i + 1}`,
-    values: expenseSeries.map(() => Math.round(200 + rand() * 900)),
-  }));
-  return { stepData, sleepData, expenseSeries, expenseGroups };
-}
-
-const HABIT_SEGMENTS = [
-  { label: 'Complete',   value: 47, color: '#7E9469' },
-  { label: 'Incomplete', value: 27, color: '#D2C4B4' },
-  { label: 'Delayed',    value: 26, color: '#B5734F' },
-];
 
 export default function AnalyticsPage() {
   const [range, setRange] = useState('Last 30 Days');
-  const days = RANGES[range];
-  const { stepData, sleepData: mockSleep, expenseSeries, expenseGroups: mockExpenses } = useMemo(() => buildData(days), [days]);
 
-  // Real backend data for the two charts the API can drive.
+  // Real backend data — the only source of truth for this page.
   const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [summaryError, setSummaryError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     analyticsApi.summary()
       .then((s) => { if (!cancelled) { setSummary(s); setSummaryError(''); } })
-      .catch((err) => { if (!cancelled) setSummaryError(err.message || 'Could not load analytics'); });
+      .catch((err) => { if (!cancelled) setSummaryError(err.message || 'Could not load analytics'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
-  // Map the backend's weeklySleep into the LineAreaChart's shape.
+  // Map the backend's weeklySleep into the LineAreaChart's shape. The current
+  // /api/analytics window is a fixed 7 days — the range selector doesn't
+  // change this yet, which is why it's disabled below rather than pretending
+  // to filter data that was never fetched for that range.
   const sleepData = useMemo(() => {
-    if (!summary?.weeklySleep?.length) return mockSleep;
+    if (!summary?.weeklySleep?.length) return [];
     return summary.weeklySleep.map((p) => ({
       label: p.date?.slice(5) || '',  // mm-dd
       value: typeof p.hours === 'number' ? p.hours : 0,
     }));
-  }, [summary, mockSleep]);
-
-  // For the existing GroupedBarChart we keep the mocked daily breakdown until
-  // we add a date-bucketed expense endpoint. Category totals from the summary
-  // could be visualised here, but the chart's shape expects per-day groups.
-  const expenseGroups = mockExpenses;
-
-  const habitTotal = HABIT_SEGMENTS.reduce((s, x) => s + x.value, 0);
+  }, [summary]);
 
   return (
     <div className="app-shell" data-screen-label="Analytics">
@@ -217,11 +95,20 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {/* Master date-range filter */}
+          {/* Master date-range filter — disabled until the backend supports a
+              date-ranged analytics query; showing it as active without wiring
+              would misrepresent what's on screen. */}
           <div className="range-bar">
             <span className="range-bar__label">Master Date-Range Filter</span>
             <div className="range-bar__controls">
-              <select className="range-bar__select" value={range} onChange={(e) => setRange(e.target.value)} aria-label="Select date range">
+              <select
+                className="range-bar__select"
+                value={range}
+                onChange={(e) => setRange(e.target.value)}
+                aria-label="Select date range (coming soon)"
+                disabled
+                title="Date-range filtering is not available yet"
+              >
                 {Object.keys(RANGES).map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
@@ -229,72 +116,57 @@ export default function AnalyticsPage() {
 
           {/* 2×2 chart grid */}
           <div className="analytics__grid">
-            {/* Step Frequency */}
+            {/* Step Frequency — no backend field for actual steps taken yet
+                (DailyLog only stores a target), so there's nothing real to
+                chart here. */}
             <section className="card" id="card-step-frequency">
               <div className="chart-card__header">
                 <h2 className="chart-card__title">Step Frequency Bar Chart</h2>
                 <span className="chip chip--clay">Health</span>
               </div>
-              <BarChart
-                data={stepData}
-                yLabels={['0', '20k', '40k', '60k', '80k', '100k', '110k+']}
-                colorA="var(--sage-500)"
-                colorB="var(--sand-300)"
-              />
+              <div className="txn-empty">No data available yet.</div>
             </section>
 
-            {/* Sleep Duration */}
+            {/* Sleep Duration — real data from /api/analytics */}
             <section className="card" id="card-sleep-duration">
               <div className="chart-card__header">
                 <h2 className="chart-card__title">Sleep Duration Line Chart</h2>
                 <span className="chip chip--info">Body Analytics</span>
               </div>
-              <LineAreaChart
-                data={sleepData}
-                yLabels={['0 hrs', '2 hrs', '4 hrs', '6 hrs', '8 hrs', '10 hrs', '12 hrs']}
-                max={12}
-              />
+              {loading ? (
+                <div className="txn-empty">Loading…</div>
+              ) : summaryError ? (
+                <div className="txn-empty" role="alert" style={{ color: 'var(--clay-600)' }}>{summaryError}</div>
+              ) : sleepData.length === 0 ? (
+                <div className="txn-empty">No data available yet.</div>
+              ) : (
+                <LineAreaChart
+                  data={sleepData}
+                  yLabels={['0 hrs', '2 hrs', '4 hrs', '6 hrs', '8 hrs', '10 hrs', '12 hrs']}
+                  max={12}
+                />
+              )}
             </section>
 
-            {/* Habit Completion */}
+            {/* Habit Completion — no backend endpoint computes a completion
+                rate against the habit catalog yet. */}
             <section className="card" id="card-habit-completion">
               <div className="chart-card__header">
                 <h2 className="chart-card__title">Habit Completion Percentage</h2>
                 <span className="chip chip--clay">Mind Analytics</span>
               </div>
-              <div className="donut-row">
-                <DonutChart segments={HABIT_SEGMENTS} />
-                <div className="donut-row__legend">
-                  {HABIT_SEGMENTS.map((s) => (
-                    <div className="chart-legend__item" key={s.label}>
-                      <span className="chart-legend__dot chart-legend__dot--round" style={{ background: s.color }} />
-                      {s.label}
-                      <span className="chart-legend__pct">{Math.round((s.value / habitTotal) * 100)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <div className="txn-empty">No data available yet.</div>
             </section>
 
-            {/* Expense Comparison */}
+            {/* Expense Comparison — /api/analytics returns category totals,
+                not a per-day breakdown this chart needs, so there's nothing
+                real to plot per-day yet. */}
             <section className="card" id="card-expense-comparison">
               <div className="chart-card__header">
                 <h2 className="chart-card__title">Categorical Expense Comparison</h2>
                 <span className="chip chip--clay">Finance Analytics</span>
               </div>
-              <GroupedBarChart
-                groups={expenseGroups}
-                series={expenseSeries}
-                yLabels={['$0', '$300', '$600', '$900', '$1k+']}
-              />
-              <div className="chart-legend">
-                {expenseSeries.map((s) => (
-                  <div className="chart-legend__item" key={s.label}>
-                    <span className="chart-legend__dot" style={{ background: s.color }} />
-                    {s.label}
-                  </div>
-                ))}
-              </div>
+              <div className="txn-empty">No data available yet.</div>
             </section>
           </div>
         </div>
