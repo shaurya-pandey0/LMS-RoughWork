@@ -10,6 +10,7 @@ import ExpensesPage from './ExpensesPage';
 import JournalPage from './JournalPage';
 import AnalyticsPage from './AnalyticsPage';
 import AdminPage from './AdminPage';
+import SettingsPage from './SettingsPage';
 import { useAuth } from './lib/auth.jsx';
 
 /* Reset scroll position when navigating between pages */
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="/expenses" element={<ProtectedRoute><ExpensesPage /></ProtectedRoute>} />
           <Route path="/journal" element={<ProtectedRoute><JournalPage /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

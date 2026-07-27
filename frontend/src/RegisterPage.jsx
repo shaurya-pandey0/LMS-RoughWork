@@ -102,10 +102,10 @@ export default function RegisterPage() {
       <div className="card card--auth">
 
         {/* Logo */}
-        <Link
-          to="/"
+        <div
           className="sidebar__logo"
           id="register-logo"
+          aria-label="LifeTrack"
           style={{ marginBottom: 'var(--space-6)', display: 'inline-flex' }}
         >
           <svg
@@ -123,7 +123,7 @@ export default function RegisterPage() {
             />
           </svg>
           <span className="sidebar__logo-text">LifeTrack</span>
-        </Link>
+        </div>
 
         {/* Title & subtitle */}
         <h1 className="card__title" id="register-title">Begin Your Journey</h1>

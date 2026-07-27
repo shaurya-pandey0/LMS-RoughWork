@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import './styles/admin.css';
 import { adminApi } from './lib/api.js';
 import { useAuth } from './lib/auth.jsx';
@@ -26,6 +26,7 @@ const ADMIN_NAV = [
 
 export default function AdminPage() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState('stats');
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -65,12 +66,12 @@ export default function AdminPage() {
       {/* ── Admin Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar__header">
-          <Link to="/" className="sidebar__logo">
+          <div className="sidebar__logo" aria-label="LifeTrack">
             <svg className="sidebar__logo-mark" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
               <path d="M16 2C14 8 8 14 4 18C8 17 12 18 14 22C14 18 16 12 22 6C20 8 18 6 16 2Z" fill="#241F1A" />
             </svg>
             <span className="sidebar__logo-text">LifeTrack</span>
-          </Link>
+          </div>
         </div>
 
         <nav className="sidebar__nav" aria-label="Admin navigation">
@@ -91,11 +92,22 @@ export default function AdminPage() {
         </nav>
 
         <div className="sidebar__user">
-          <div className="sidebar__avatar sidebar__avatar--fallback">{adminInitials}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="sidebar__username" title={adminName}>{adminName}</div>
-            <div className="admin-sidebar__role">Administrator</div>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            aria-label={`Open settings for ${adminName}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+              flex: 1, minWidth: 0, background: 'none', border: 'none',
+              cursor: 'pointer', padding: 0, font: 'inherit', textAlign: 'left',
+            }}
+          >
+            <div className="sidebar__avatar sidebar__avatar--fallback">{adminInitials}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="sidebar__username" title={adminName}>{adminName}</div>
+              <div className="admin-sidebar__role">Administrator</div>
+            </div>
+          </button>
           <button
             type="button"
             onClick={logout}

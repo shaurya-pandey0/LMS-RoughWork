@@ -71,13 +71,13 @@ function initialsFor(name) {
 /**
  * Shared LifeTrack sidebar.
  *
- * Reads the current user from AuthContext. Supports an optional `plan` label
- * underneath the username. The admin link appears only for ADMIN role users.
+ * Reads the current user from AuthContext. The admin link appears only for
+ * ADMIN role users. Clicking the avatar/name block navigates to /settings;
+ * the sign-out button is a separate control and never triggers navigation.
  *
  * @param {string} active   The id of the active nav item (e.g. "expenses").
- * @param {string} plan     Optional secondary label under the username.
  */
-export default function Sidebar({ active, plan }) {
+export default function Sidebar({ active }) {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -92,7 +92,7 @@ export default function Sidebar({ active, plan }) {
   return (
     <aside className="sidebar">
       <div className="sidebar__header">
-        <Link to="/" className="sidebar__logo">
+        <div className="sidebar__logo" aria-label="LifeTrack">
           <svg
             className="sidebar__logo-mark"
             width="28"
@@ -108,7 +108,7 @@ export default function Sidebar({ active, plan }) {
             />
           </svg>
           <span className="sidebar__logo-text">LifeTrack</span>
-        </Link>
+        </div>
       </div>
 
       <nav className="sidebar__nav" aria-label="Main navigation">
@@ -141,16 +141,24 @@ export default function Sidebar({ active, plan }) {
       </nav>
 
       <div className="sidebar__user">
-        <div className="sidebar__avatar sidebar__avatar--fallback">{initials}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="sidebar__username" title={displayName}>{displayName}</div>
-          {plan && (
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--taupe-400)' }}>{plan}</div>
-          )}
-          {!plan && isAdmin && (
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--taupe-400)' }}>Administrator</div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/settings')}
+          aria-label={`Open settings for ${displayName}`}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+            flex: 1, minWidth: 0, background: 'none', border: 'none',
+            cursor: 'pointer', padding: 0, font: 'inherit', textAlign: 'left',
+          }}
+        >
+          <div className="sidebar__avatar sidebar__avatar--fallback">{initials}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="sidebar__username" title={displayName}>{displayName}</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--taupe-400)' }}>
+              {isAdmin ? 'Administrator' : 'Account settings'}
+            </div>
+          </div>
+        </button>
         <button
           type="button"
           onClick={handleLogout}

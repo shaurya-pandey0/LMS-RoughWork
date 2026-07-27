@@ -42,7 +42,7 @@ export default function LandingPage() {
       <nav className="topnav topnav--full" style={{ position: 'relative', left: 0 }}>
         <div className="topnav__left">
           {/* Logo */}
-          <Link to="/" className="sidebar__logo" id="landing-logo">
+          <div className="sidebar__logo" id="landing-logo" aria-label="LifeTrack">
             <svg
               className="sidebar__logo-mark"
               width="28" height="28"
@@ -56,7 +56,7 @@ export default function LandingPage() {
               />
             </svg>
             <span className="sidebar__logo-text">LifeTrack</span>
-          </Link>
+          </div>
 
           {/* Nav links */}
           <div className="topnav__links" style={{ marginLeft: 'var(--space-8)' }}>

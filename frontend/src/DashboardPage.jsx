@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import UserProfileModal from './components/UserProfileModal';
 import { analyticsApi, insightsApi, aiApi, aiContextApi } from './lib/api.js';
 import { useAuth } from './lib/auth.jsx';
 import { useReference, colorForCategory } from './lib/reference.jsx';
@@ -65,6 +66,7 @@ export default function DashboardPage() {
   const [aiInsights, setAiInsights] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const runAiInsights = async () => {
     if (aiLoading) return;
@@ -161,19 +163,32 @@ export default function DashboardPage() {
       <div className="botanical-overlay" />
 
       {/* ── Sidebar ── */}
-      <Sidebar active="dashboard" plan="Premium" />
+      <Sidebar active="dashboard" />
 
       {/* ── Top Nav ── */}
       <nav className="topnav" id="dashboard-topnav">
         <div className="topnav__left" />
         <div className="topnav__right">
-          <div className="avatar avatar--md avatar--fallback" id="topnav-avatar"
-            style={{ fontSize: 'var(--text-sm)' }}>
-            {initials}
-          </div>
-          <span className="topnav__user-name">{displayName}</span>
+          <button
+            type="button"
+            id="topnav-profile-trigger"
+            onClick={() => setProfileOpen(true)}
+            aria-label={`Open account info for ${displayName}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit',
+            }}
+          >
+            <div className="avatar avatar--md avatar--fallback" id="topnav-avatar"
+              style={{ fontSize: 'var(--text-sm)' }}>
+              {initials}
+            </div>
+            <span className="topnav__user-name">{displayName}</span>
+          </button>
         </div>
       </nav>
+
+      <UserProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
 
       {/* ── Main Content ── */}
       <main className="app-main">

@@ -72,7 +72,7 @@ export default function LoginPage() {
       {/* Auth Card */}
       <div className="card card--auth">
         {/* Logo */}
-        <Link to="/" className="sidebar__logo" id="login-logo" style={{ marginBottom: 'var(--space-6)', display: 'inline-flex' }}>
+        <div className="sidebar__logo" id="login-logo" aria-label="LifeTrack" style={{ marginBottom: 'var(--space-6)', display: 'inline-flex' }}>
           <svg
             className="sidebar__logo-mark"
             width="28"
@@ -88,7 +88,7 @@ export default function LoginPage() {
             />
           </svg>
           <span className="sidebar__logo-text">LifeTrack</span>
-        </Link>
+        </div>
 
         {/* Title & Subtitle */}
         <h1 className="card__title" id="login-title">Welcome Back</h1>
