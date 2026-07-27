@@ -1,311 +1,564 @@
-# LifeTrack — Backend Walkthrough & Team Split
+# LifeTrack — Phase 3 Backend Walkthrough and Team Split
 
-**Purpose:** presentation plan for explaining the backend end-to-end to the
-teacher. 23 REST endpoints across 8 controllers, split between 3 presenters so
-that **each person owns a complete vertical slice** (HTTP request → security →
-controller → DTO → service → repository → MySQL → response), not just one layer.
+**Purpose:** present the current Spring Boot backend end-to-end and divide it
+between three presenters using complete vertical slices. Each presenter should
+be able to trace:
 
-> Why vertical, not horizontal? If we split by layer ("you do controllers, you
-> do services"), nobody can answer "what happens when I click Save?". Splitting
-> by feature means each of us can trace a full request start-to-finish.
+```text
+React action → HTTP request → Spring Security → controller → DTO → service
+→ repository/JPA → MySQL → response DTO → HTTP response → React state → UI
+```
+
+CSS, component markup, chart geometry, colors and React's internal rendering
+algorithm are presentation details. They are not part of the API pipeline.
+
+> This document reflects the current Phase 3 scope: Spring Boot and MySQL are
+> the stable application backend. Python AI, RAG, embeddings and LM Studio are
+> deliberately parked for Phase 4. Spring AI is not used or planned.
 
 ---
 
-## 1. System at a glance
+## 1. Current status and scope decisions
 
-```
-Browser (React, :5173)
-      │  fetch + Authorization: Bearer <JWT>
+### Backend-separation plan
+
+| # | Work item | Current status | Phase 3 decision |
+| --- | --- | --- | --- |
+| 1 | `/api/reference` plus server-side category/mood validation | Complete: backend and frontend wired | Present |
+| 2 | `/api/daily-logs/today` and targeted daily-log queries | Complete: backend and frontend wired | Present |
+| 3 | `UserSettings` plus `/api/settings` | Complete: backend and frontend wired | Present |
+| 4 | `/api/ai-context` | Complete: backend and frontend call sites wired | Present as the Phase 4 seam, not as AI inference |
+| 5 | Dedicated `/api/dashboard/summary` | Not implemented | Intentionally skipped; current APIs are sufficient |
+| 6 | Pagination for expenses/journals | Not implemented | Deferred scalability work |
+| 7 | `stepsActual` and new analytics endpoints | Not implemented | Deferred; do not invent data |
+| 7a | Remove seeded/random/hardcoded application metrics | In cleanup | Required before the demo |
+
+Steps 1–4 achieve the original architectural goal: React is primarily a
+presentation client, while Spring owns persisted facts, validation, settings,
+domain vocabulary and trusted aggregation.
+
+### “Real data only” rule
+
+Every value presented as user, health, analytics or admin data must come from:
+
+1. a real Spring Boot endpoint; and
+2. persisted MySQL records, or a backend calculation derived from those
+   records.
+
+Allowed in the frontend:
+
+- colors, labels and icons;
+- date/number formatting;
+- CSS and responsive layout;
+- mapping response data into components;
+- SVG coordinates and percentages used only to draw a chart.
+
+Not allowed:
+
+- seeded or random metrics;
+- hardcoded values that pretend to be user/admin/health data;
+- fallback arrays that look like real analytics;
+- constructing trusted business context in the browser.
+
+If real data does not exist, remove the visualization or display a clear
+loading, error or “No data available yet” state.
+
+### Work intentionally excluded
+
+- No dedicated dashboard-summary endpoint for this phase.
+- No pagination/date-filter expansion beyond the daily-log filters already
+  implemented.
+- No component-library or reusable “mini-Bootstrap” extraction is required.
+- No Python/FastAPI, RAG, embeddings, LM Studio or Spring AI work in Phase 3.
+- No new endpoint solely to preserve a fake visualization.
+
+---
+
+## 2. System at a glance
+
+### Phase 3 system being presented
+
+```text
+Browser: React (:5173)
+      │  fetch + JSON + Authorization: Bearer <JWT>
       ▼
 Spring Boot (:8080)
-      │  SecurityFilterChain → JwtAuthenticationFilter → Controller
-      │  Controller → Service → Repository (Spring Data JPA)
+      │  SecurityFilterChain → JwtAuthenticationFilter
+      │  Controller → DTO → Service → Repository/JPA
       ▼
-MySQL (:3306)   schema: lifestyle_ai   (tables auto-created by Hibernate)
-
-Browser ──► FastAPI AI service (:8100) ──► LM Studio (:1234, local LLM)
-                                     └──► local vector store (TurboVec)
+MySQL (:3306)
+schema: lifestyle_ai
+      │
+      └── saved entity/aggregate → response DTO → JSON → React state → UI
 ```
 
-Two independent backends. Spring owns all persisted data; the FastAPI service
-is stateless w.r.t. Spring and is optional — if it's off, the app still works.
+React never accesses MySQL directly. React and Spring do not call each other
+like local functions; the boundary is an HTTP contract such as:
 
-### Tech stack (backend)
-| Concern | Choice |
+```text
+POST http://localhost:8080/api/expenses
+```
+
+### Phase 4 seam — implemented now, consumed later
+
+```text
+React or future application flow
+      │ authenticated request
+      ▼
+Spring GET /api/ai-context?days=7
+      │ owner-scoped MySQL queries + trusted aggregation
+      ▼
+Future Python service
+      │ RAG / embeddings / LLM reasoning
+      ▼
+Generated AI result
+```
+
+`/api/ai-context` is an ordinary Spring endpoint. It performs no AI inference
+and does not mean the project uses Spring AI. It prevents a future Python
+service from owning CRUD rules or accepting an arbitrary browser-supplied user
+identity.
+
+### Backend technology
+
+| Concern | Current choice |
 | --- | --- |
-| Framework | Spring Boot 3.3.4, Java 17 |
-| Web | Spring Web (`@RestController`) |
-| Security | Spring Security + JWT (jjwt 0.12), stateless |
-| Persistence | Spring Data JPA / Hibernate 6.5 → MySQL 8 |
-| Validation | Jakarta Bean Validation (`@Valid`) |
-| Docs | springdoc-openapi → Swagger UI |
-| AI service | Python FastAPI + Pydantic, OpenAI-compatible client |
+| Language/runtime | Java 17 |
+| Framework | Spring Boot 3.3.4 |
+| HTTP | Spring Web and `@RestController` |
+| Security | Spring Security, stateless JWT, BCrypt |
+| Persistence | Spring Data JPA / Hibernate 6.5 |
+| Database | MySQL, schema `lifestyle_ai` |
+| Validation | Jakarta Bean Validation and `@Valid` |
+| API documentation | springdoc-openapi 2.6.0 and Swagger UI |
+| Monitoring | Spring Boot Actuator, metrics and Prometheus endpoint |
+| AI for Phase 3 | None; Python work is parked |
 
 ---
 
-## 2. Endpoint inventory (23 total)
+## 3. Current endpoint inventory — 28 operations, 11 controllers
 
-| Controller | Endpoints | Count | Auth |
-| --- | --- | --- | --- |
-| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | 3 | public / public / JWT |
-| `DailyLogController` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` on `/api/daily-logs` | 5 | JWT |
-| `ExpenseController` | same 5 shapes on `/api/expenses` | 5 | JWT |
-| `JournalController` | same 5 shapes on `/api/journal` | 5 | JWT |
-| `AnalyticsController` | `GET /api/analytics` | 1 | JWT |
-| `InsightController` | `GET /api/insights` | 1 | JWT |
-| `AdminController` | `GET /api/admin/stats`, `GET /api/admin/users` | 2 | JWT + `ROLE_ADMIN` |
+| Controller | Operations | Count | Access |
+| --- | --- | ---: | --- |
+| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | 3 | first two public; `/me` requires JWT |
+| `ExpenseController` | list, get by ID, create, update, delete on `/api/expenses` | 5 | JWT, owner-scoped |
+| `JournalController` | list, get by ID, create, update, delete on `/api/journal` | 5 | JWT, owner-scoped |
+| `DailyLogController` | list/query, get by ID, create/upsert, update, delete, `GET /today` | 6 | JWT, owner-scoped |
+| `UserSettingsController` | `GET /api/settings`, `PUT /api/settings` | 2 | JWT, owner-scoped |
+| `ReferenceController` | `GET /api/reference` | 1 | JWT |
+| `AnalyticsController` | `GET /api/analytics` | 1 | JWT, owner-scoped aggregation |
+| `InsightController` | `GET /api/insights` | 1 | JWT, owner-scoped rules |
+| `AiContextController` | `GET /api/ai-context?days=` | 1 | JWT, owner-scoped aggregation |
+| `AdminController` | `GET /api/admin/stats`, `GET /api/admin/users` | 2 | JWT plus `ROLE_ADMIN` |
 | `HealthController` | `GET /api/health` | 1 | public |
-| | **Total** | **23** | |
+|  | **Total** | **28** |  |
 
-Plus the AI microservice (separate app, not in Swagger): `GET /health`,
-`GET /models`, `POST /insights`, `POST /chat`, `POST /vectors/upsert`,
-`POST /vectors/search`, `DELETE /vectors/{user_key}`.
+`GET /api/daily-logs` supports three read modes without creating extra Swagger
+operations:
 
----
+- no parameters: all logs for the current user;
+- `?date=YYYY-MM-DD`: zero or one record returned as a list;
+- `?from=YYYY-MM-DD&to=YYYY-MM-DD`: an owner-scoped date range.
 
-## 3. How many pipelines do we have?
-
-**7 distinct pipelines.** A "pipeline" = a different path a request takes
-through the system. Memorise these 7; every endpoint falls into one.
-
-| # | Pipeline | Entry points | What makes it different |
-| --- | --- | --- | --- |
-| **P1** | **Authentication & token issue** | `/auth/register`, `/auth/login` | Public. Password hashing (BCrypt) + JWT creation. No JWT on the way in. |
-| **P2** | **Authenticated request (token validation)** | every protected endpoint | `JwtAuthenticationFilter` parses/validates the JWT and populates `SecurityContext` before the controller runs. |
-| **P3** | **Write / CRUD** | `POST`/`PUT`/`DELETE` on daily-logs, expenses, journal | DTO validation → service → `repository.save()` → Hibernate `INSERT/UPDATE`. Includes the **upsert-by-date** special case. |
-| **P4** | **Read / owner-scoped query** | `GET` list + `GET /{id}` on the 3 resources | Every query is filtered by the authenticated user's id (`findByUserId...`) so users can't read each other's rows. |
-| **P5** | **Aggregation / analytics** | `GET /analytics` | Reads many rows, then groups/sums **in Java streams** to build a summary DTO. No entity is returned. |
-| **P6** | **Rule-based insight engine** | `GET /insights` | Deterministic business rules over a 7-day window, thresholds injected from config. |
-| **P7** | **Role-gated admin** | `/admin/stats`, `/admin/users` | System-wide (not user-scoped) + requires `ROLE_ADMIN`, enforced by `SecurityConfig`. |
-
-Two **extra pipelines live in the AI microservice** (mention if asked):
-
-| # | Pipeline | Entry | Notes |
-| --- | --- | --- | --- |
-| **P8** | AI insight / chat | `POST /insights`, `POST /chat` | Prompt → LLM → **Pydantic validation** → falls back to rules if invalid/unreachable. |
-| **P9** | Local RAG / vector | `POST /vectors/upsert`, `/vectors/search` | Local Nomic embeddings → 4-bit TurboVec index, per-user folder. |
+`GET /api/daily-logs/today` returns `200` with today's record or `204 No
+Content` when no record exists.
 
 ---
 
-## 4. The layer chain (everyone must be able to draw this)
+## 4. The request pipeline everyone must be able to draw
 
-```
+```text
 HTTP request
    │
-   ├─ SecurityFilterChain            SecurityConfig.java
-   │     └─ JwtAuthenticationFilter  validates token, sets SecurityContext
+   ├─ SecurityFilterChain
+   │    └─ JwtAuthenticationFilter
+   │         validates signature/expiry, loads user, sets SecurityContext
    │
-   ├─ @RestController                controller/*.java     ← HTTP concerns only
-   │     └─ @Valid  RequestDTO       dto/*Dtos.java         ← input contract
+   ├─ @RestController
+   │    ├─ maps HTTP method + URL
+   │    └─ @Valid Request DTO
    │
-   ├─ Service                        service/*.java         ← business logic
-   │     └─ SecurityUtils.currentUserId()  ← who am I?
+   ├─ Service
+   │    ├─ receives SecurityUtils.currentUserId()
+   │    ├─ enforces business/domain rules
+   │    └─ orchestrates repositories
    │
-   ├─ Repository (interface only!)   repository/*.java      ← Spring Data JPA
-   │     └─ Hibernate generates SQL
+   ├─ Spring Data repository
+   │    └─ Hibernate derives/generates SQL
    │
-   ├─ Entity                         entity/*.java          ← table mapping
+   ├─ Entity ↔ MySQL table
    │
    ▼
- MySQL   →  Entity  →  ResponseDTO  →  JSON
-                        (never expose the entity directly)
+saved Entity or aggregate
+   → Response DTO
+   → Spring/Jackson serializes JSON
+   → HTTP status + body
+   → api.js parses JSON
+   → React updates state
+   → UI re-renders
 
-Errors anywhere ──► GlobalExceptionHandler (@RestControllerAdvice) ──► clean JSON
+Exception
+   → GlobalExceptionHandler or Spring Security
+   → consistent 400/401/403/404/409 response
 ```
 
-**One-line rationale for each layer** (good exam answer):
-- **Controller** — translates HTTP to method calls. No business logic.
-- **DTO** — the API contract. Keeps entities out of the JSON so DB changes don't break clients, and hides fields like `password`.
-- **Service** — the business rules + transaction boundary.
-- **Repository** — we write only the *method name*; Spring Data generates the query at runtime.
-- **Entity** — the ORM mapping to a table.
+One-line responsibility of each layer:
+
+- **React page:** collects input, calls the API and renders the returned state.
+- **Frontend `api.js`:** owns HTTP mechanics, JWT header, JSON parsing and
+  frontend API errors.
+- **Controller:** maps HTTP to Java calls and selects the response status.
+- **Request DTO:** defines and validates the incoming API contract.
+- **Service:** owns domain validation and use-case orchestration.
+- **Repository:** exposes persistence operations; Spring Data implements them.
+- **Entity:** maps Java fields to database tables/columns.
+- **Response DTO:** defines exactly what is returned; entities are not exposed.
+
+### Example: Create Expense
+
+```text
+ExpensesPage.handleSubmit()
+→ expenseApi.create(payload)
+→ POST /api/expenses with JWT and JSON
+→ JwtAuthenticationFilter
+→ ExpenseController.create(@Valid ExpenseRequest)
+→ ExpenseService.create(currentUserId, request)
+→ validate category against ReferenceProperties
+→ ExpenseRepository.save(Expense)
+→ Hibernate INSERT into expenses
+→ MySQL generates ID
+→ ExpenseResponse
+→ HTTP 201 Created + JSON
+→ api.js
+→ setTxns(...)
+→ expense appears in the UI
+```
+
+The CSS classes used by the expense card/table are deliberately outside this
+pipeline.
 
 ---
 
-## 5. Team split — 3 vertical slices
+## 5. Nine request paths to understand
 
-Everyone must first know **Section 4 (layer chain)** and **Section 3 (the 7
-pipelines)**. Then each person owns the deep detail below.
+Every current endpoint is a variation of these paths.
 
-### 👤 Person A — "Identity & Access" (Pipelines P1, P2, P7)
+| # | Pipeline | Entry points | Distinguishing behavior |
+| --- | --- | --- | --- |
+| **P1** | Authentication/token issue | register, login | Public input; BCrypt and JWT creation; no incoming JWT |
+| **P2** | JWT authentication | every protected endpoint | Filter validates token and establishes the current user before the controller |
+| **P3** | Owner-scoped CRUD write | POST/PUT/DELETE for expenses, journal, daily logs | DTO validation, service rules, JPA write; daily-log POST includes upsert-by-date |
+| **P4** | Owner-scoped CRUD read | list and get-by-ID endpoints | Queries always include the authenticated user ID |
+| **P5** | Targeted daily-log read | `/daily-logs/today`, `?date=`, `?from=&to=` | Database performs the targeted lookup instead of React fetching everything |
+| **P6** | Domain reference/config | `/reference` | Backend supplies categories, habits and moods; write services enforce matching values |
+| **P7** | Per-user settings | GET/PUT `/settings` | Defaults are persisted on first read; later updates use the same user row |
+| **P8** | Derived data | `/analytics`, `/insights`, `/ai-context` | Owner-scoped rows become aggregate DTOs or deterministic rules, not entities |
+| **P9** | Role-gated administration | `/admin/stats`, `/admin/users` | System-wide data and `ROLE_ADMIN` authorization |
 
-**Endpoints (6):** `POST /auth/register`, `POST /auth/login`, `GET /auth/me`,
-`GET /admin/stats`, `GET /admin/users`, `GET /health`
+P2 is cross-cutting: a request such as `POST /api/expenses` passes through both
+P2 and P3.
 
-**Files to read:**
+---
+
+## 6. The four completed backend seams
+
+### A. `/api/reference`
+
+Spring is now the source of truth for:
+
+- expense categories;
+- transactional and embedded habit catalogs;
+- journal moods;
+- daily-log moods.
+
+`ExpenseService`, `JournalService` and `DailyLogService` reject unknown values
+with `400 Bad Request`. React uses the returned lists to render controls, while
+colors and icons remain frontend presentation choices.
+
+### B. `/api/daily-logs/today` and date queries
+
+The frontend no longer downloads all logs and filters them to find today's
+record. The database lookup is owner-scoped, and the HTTP response distinguishes
+“found” (`200`) from “not created yet” (`204`).
+
+### C. `/api/settings`
+
+`UserSettingsService.getOrCreate(userId)` persists one settings row per user.
+The current fields are:
+
+- monthly budget;
+- sleep target hours;
+- step target;
+- water target in millilitres.
+
+These values are not frontend constants. `PUT /api/settings` validates positive
+targets and persists changes.
+
+### D. `/api/ai-context`
+
+The endpoint accepts an optional `days` window and aggregates owner-scoped:
+
+- average sleep;
+- spending and category totals;
+- average water intake;
+- habit consistency;
+- mood counts;
+- a bounded number of recent journal excerpts;
+- the configured rule thresholds.
+
+The current user's ID comes from Spring Security, never from a browser-provided
+`user_key`. This is the stable Phase 4 boundary: Spring supplies trusted facts;
+future Python is free to perform RAG or other AI reasoning.
+
+---
+
+## 7. Persistence model worth explaining
+
+Hibernate currently manages these application tables:
+
+- `users`
+- `user_settings`
+- `expenses`
+- `journal_entries`
+- `daily_logs`
+- `daily_log_transactional_habits`
+- `daily_log_embedded_habits`
+
+`DailyLog` demonstrates three useful persistence patterns:
+
+1. `(userId, date)` has a unique constraint, enabling one log per user per day.
+2. Habit lists use `@ElementCollection` collection tables.
+3. Meals use `MealListConverter` to persist the nested list as JSON in a
+   `TEXT` column because nested element collections are not supported directly.
+
+`repository.save(entity)` is where JPA/Hibernate issues the SQL write. For
+identity-generated IDs, MySQL generates the ID and Hibernate returns it on the
+saved entity.
+
+---
+
+## 8. Team split — three vertical slices
+
+The endpoint counts are intentionally unequal; complexity and presentation time
+are more important than raw counts. Everyone must understand Sections 2–5.
+
+### Person A — Identity, configuration and privileged access
+
+**Endpoints (9):**
+
+- auth register/login/me;
+- settings GET/PUT;
+- reference GET;
+- admin stats/users;
+- health GET.
+
+**Primary files:**
+
 `AuthController`, `AuthService`, `SecurityConfig`, `JwtService`,
 `JwtAuthenticationFilter`, `CustomUserDetailsService`, `UserPrincipal`,
-`SecurityUtils`, `User`, `Role`, `UserRepository`, `AuthDtos`, `UserDto`,
-`AdminController`
+`SecurityUtils`, `UserSettingsController`, `UserSettingsService`,
+`ReferenceController`, `ReferenceProperties`, `AdminController`,
+`HealthController`, related DTOs/entities/repositories.
 
-**Story to tell (register → login → protected call):**
-1. `POST /register` → `AuthService.register()` → `existsByEmail` guard →
-   **BCrypt** hash → `userRepository.save()` → issue JWT → return
-   `{token, tokenType, user}`. Password is *never* returned (that's why `UserDto` exists).
-2. `POST /login` → `AuthenticationManager.authenticate()` →
-   `DaoAuthenticationProvider` → `CustomUserDetailsService.loadUserByUsername()`
-   → BCrypt compare → JWT signed **HS384** with subject=email, claims `uid` + `role`, 24h expiry.
-3. Any protected call → `JwtAuthenticationFilter` runs *before*
-   `UsernamePasswordAuthenticationFilter`: reads `Authorization: Bearer`,
-   validates signature+expiry, loads the user, sets `SecurityContext`.
-   **Stateless** — no session, `SessionCreationPolicy.STATELESS`.
-4. `/admin/**` → `.hasRole("ADMIN")`. Authority string is `ROLE_ADMIN`
-   (`UserPrincipal` prefixes `ROLE_`), `hasRole` adds the prefix itself.
+**Story:**
 
-**Must be able to answer:**
-- Why JWT instead of sessions? (stateless, scales, no server-side store)
-- What's inside the token? (show a decoded payload; note it's **signed, not encrypted**)
-- Why BCrypt not SHA-256? (slow + per-password salt → resists brute force)
-- What happens if the token is tampered with? (signature check fails → 401)
-- Where does CORS get configured, and why is it needed? (`SecurityConfig`, browser blocks :5173→:8080 otherwise)
+1. Registration checks email uniqueness, hashes the password with BCrypt,
+   persists the user and returns a signed JWT plus `UserDto`.
+2. Login delegates credential checking to Spring Security and returns a new
+   token.
+3. A protected request is authenticated by the JWT filter before its
+   controller executes.
+4. `/settings` proves authenticated per-user configuration persistence.
+5. `/reference` demonstrates config-owned domain vocabulary.
+6. `/admin/**` demonstrates role authorization; health demonstrates a public
+   operational endpoint.
 
----
+**Must answer:**
 
-### 👤 Person B — "Domain Data & Persistence" (Pipelines P3, P4)
+- Why JWT is signed rather than encrypted.
+- Why passwords use BCrypt.
+- Why `userId` comes from the security context.
+- Why CORS is required between ports 5173 and 8080.
+- Difference between authentication (`401`) and authorization (`403`).
+- How first-read settings defaults become a real MySQL row.
 
-**Endpoints (15 — the CRUD bulk):** all 5 on `/api/daily-logs`, all 5 on
-`/api/expenses`, all 5 on `/api/journal`
+### Person B — Domain CRUD and persistence
 
-**Files to read:**
-`DailyLogController`/`Service`, `ExpenseController`/`Service`,
-`JournalController`/`Service`, all 3 repositories, `DailyLog` (+`Meal`,
-`MealListConverter`), `Expense`, `JournalEntry`, the 3 `*Dtos`,
-`GlobalExceptionHandler`, `application.yml` (datasource + `ddl-auto`)
+**Endpoints (16):**
 
-**Story to tell (one save, end to end):**
-1. `POST /api/daily-logs` with JSON body → `@Valid @RequestBody DailyLogRequest`
-   (a Java `record`). Validation failure → `MethodArgumentNotValidException` →
-   handler returns `400` with a per-field `errors` map.
-2. Controller calls `SecurityUtils.currentUserId()` — the user id comes from the
-   **token**, never from the request body. (Security point: otherwise user 1
-   could write rows for user 2.)
-3. `DailyLogService.create()` → the **upsert**: `findByUserIdAndDate()`; if a
-   log exists for that date, update it, else create. Backed by a DB
-   `@UniqueConstraint(userId, date)`.
-4. `repository.save()` → Hibernate emits `INSERT` or `UPDATE`.
-5. Entity → `DailyLogResponse.from(...)` → JSON.
+- five expense operations;
+- five journal operations;
+- six daily-log operations, including `/today`.
 
-**The interesting mapping problem (your highlight):**
-`DailyLog` has `List<Meal>`, and `Meal` itself holds `List<String> items`.
-JPA can't nest an `@ElementCollection` inside an `@Embeddable`, so:
-- habits (`List<String>`) → two **collection tables**
-  (`daily_log_transactional_habits`, `daily_log_embedded_habits`)
-- meals → a single **JSON `TEXT` column** via `MealListConverter`
-  (`AttributeConverter`), keeping the API shape identical.
+**Primary files:**
 
-**Tables Hibernate creates:** `users`, `expenses`, `journal_entries`,
-`daily_logs`, `daily_log_transactional_habits`, `daily_log_embedded_habits`.
+the three domain controllers/services/repositories, `DailyLog`, `Meal`,
+`MealListConverter`, `Expense`, `JournalEntry`, domain DTOs,
+`GlobalExceptionHandler`, `ReferenceProperties` and `application.yml`.
 
-**Must be able to answer:**
-- How does `findByUserIdAndDateBetweenOrderByDateAsc` work with no SQL written? (Spring Data parses the method name → builds the query)
-- What does `ddl-auto: update` do, and why is it risky in production? (mutates schema; prod should use Flyway/Liquibase)
-- Why DTOs instead of returning entities? (contract stability, hide `password`, avoid lazy-loading serialisation issues)
-- How do you stop user A reading user B's data? (every query is `...ByUserId...` + `findByIdAndUserId` for single fetch)
-- What happens on a duplicate? (`DataIntegrityViolationException` → `409 Conflict` via the handler)
+**Story:**
 
----
+1. Trace Create Expense fully from React through `POST /api/expenses`, category
+   validation, JPA/MySQL and `201 Created` back to React.
+2. Demonstrate that user identity comes from JWT rather than request JSON.
+3. Trace daily-log POST as an upsert protected by `(userId, date)`.
+4. Demonstrate `/daily-logs/today` or `?date=` as a targeted database query.
+5. Explain owner-scoped repository methods such as `findByIdAndUserId`.
+6. Explain habit collection tables and the meals JSON converter.
 
-### 👤 Person C — "Derived Data & AI" (Pipelines P5, P6, + P8/P9)
+**Must answer:**
 
-**Endpoints (2 in Spring + the AI service):** `GET /api/analytics`,
-`GET /api/insights`, and the FastAPI endpoints
+- How Spring Data derives queries from repository method names.
+- Why DTOs are preferred over returning entities.
+- How one user is prevented from reading another user's rows.
+- How `@Valid` differs from service-level category/mood validation.
+- How unique-constraint failures become `409 Conflict`.
+- Why `ddl-auto: update` is convenient for development but unsuitable for
+  production migrations.
 
-**Files to read:**
-`AnalyticsController`/`AnalyticsService`, `InsightController`/`InsightService`,
-`InsightProperties`, `AnalyticsDtos`, `InsightDtos`, then
-`ai-service/app/{main,schemas,llm_client,rules,prompts,embeddings}.py`,
-`ai-service/app/vector/*`
+### Person C — Derived data and the future AI boundary
 
-**Story to tell:**
-1. `GET /analytics` → `AnalyticsService.userAnalytics(userId)`: pulls the
-   trailing 7 days of logs + all expenses + journals, then aggregates **in Java
-   streams** — `Collectors.groupingBy(Expense::getCategory,
-   Collectors.summingDouble(...))`, mood counts via `counting()`. Returns
-   `UserAnalyticsResponse` (weeklySleep, expensesByCategory, totalExpenses,
-   moodCounts, journalEntryCount).
-   *Trade-off to mention:* aggregating in Java is simpler and DB-agnostic, but a
-   `GROUP BY` in SQL would scale better — correct next step.
-2. `GET /insights` → `InsightService`: 5 deterministic rules (sleep, spending,
-   habit consistency, hydration, mood) over 7 days. Thresholds are **not
-   hardcoded** — injected via `@ConfigurationProperties("app.insights")`, so
-   they're tunable by env var. Rules stay silent when data is missing; if
-   nothing fires, a friendly "not enough data" insight is returned.
-3. **AI service (separate process):** Spring's rule engine is the always-on
-   default; the FastAPI service adds LLM insights + chat. Strict JSON at every
-   boundary via **Pydantic**; if the model returns anything invalid, it falls
-   back to the same deterministic rules. Runs fully offline against LM Studio.
-4. **Vector/RAG (optional):** journal text → local Nomic embeddings →
-   compressed to 4-bit by TurboVec → per-user in-RAM index, so chat retrieves
-   only the top-k relevant snippets instead of re-reading everything.
+**Endpoints (3):**
 
-**Must be able to answer:**
-- Why have rule-based insights at all when you have an LLM? (deterministic, instant, free, works offline; LLM is the optional upgrade)
-- Where do the thresholds come from? (config, not magic numbers)
-- How do you guarantee the LLM returns usable data? (JSON-schema request + Pydantic validation + rules fallback)
-- Why is the AI a separate service? (different language/runtime, independent scaling, failure isolation — Spring keeps working if it dies)
+- `GET /api/analytics`;
+- `GET /api/insights`;
+- `GET /api/ai-context?days=`.
+
+**Primary files:**
+
+`AnalyticsController`, `AnalyticsService`, `AnalyticsDtos`,
+`InsightController`, `InsightService`, `InsightProperties`, `InsightDtos`,
+`AiContextController`, `AiContextService`, `AiContextDtos` and the three domain
+repositories.
+
+**Story:**
+
+1. `/analytics` reads owner-scoped rows and produces weekly sleep, expense
+   totals by category, total expenses, mood counts and journal count.
+2. `/insights` runs deterministic rules using thresholds externalized through
+   `InsightProperties`.
+3. `/ai-context?days=7` proves the date window changes the aggregated result
+   and demonstrates the contract future Python can consume.
+4. Clearly state that no Python or LLM is required for any Phase 3 endpoint.
+
+**Must answer:**
+
+- Why aggregation belongs behind an endpoint instead of inside a chart
+  component.
+- Why Java-stream aggregation is acceptable now and SQL `GROUP BY` may scale
+  better later.
+- Why deterministic insights are useful without an LLM.
+- Why `/api/ai-context` is not Spring AI.
+- Why Python should consume trusted context rather than own CRUD or accept an
+  arbitrary `user_key`.
 
 ---
 
-## 6. Cross-cutting topics — **all three must know**
+## 9. Suggested 15-minute demonstration
 
-| Topic | Where | One-liner |
-| --- | --- | --- |
-| Layered architecture | whole `com.lifetrack` tree | controller → service → repository → entity, DTOs at the edge |
-| Dependency injection | every `@Service`/`@RestController` | constructor injection; no `new`, Spring owns object lifecycle |
-| Global error handling | `GlobalExceptionHandler` | `@RestControllerAdvice` maps exceptions → consistent JSON (`404/400/401/403/409`) |
-| Validation | `dto/*` + `@Valid` | fail fast at the boundary with field-level messages |
-| Stateless security | `SecurityConfig` | no sessions; every request re-authenticates from the JWT |
-| Config externalisation | `application.yml` | `${ENV_VAR:default}` everywhere → same jar, different environments |
-| Swagger/OpenAPI | springdoc | docs generated from the code, so they can't drift |
+1. **Identity:** call `GET /api/health`, register/login, copy the JWT into
+   Swagger's Authorize dialog, then call `/api/auth/me`.
+2. **Reference validation:** call `/api/reference`; submit an invalid expense
+   category and show `400`; submit a valid expense and show `201`.
+3. **Database round trip:** call `GET /api/expenses`, then show the inserted row
+   in MySQL. Explain JPA-generated SQL and the response DTO.
+4. **Daily-log targeting:** call `/api/daily-logs/today` before and after
+   creating today's log. Optionally post the same date twice to demonstrate
+   upsert and the unique constraint.
+5. **Settings:** call `GET /api/settings` to create defaults, `PUT` new values,
+   then `GET` again to prove persistence.
+6. **Derived data:** call `/api/analytics` and `/api/insights`; connect their
+   values to the records created earlier.
+7. **Future seam:** call `/api/ai-context?days=7`, then a different window.
+   Explain that Spring produces trusted context and Python is intentionally
+   postponed.
+8. **Authorization:** call `/api/admin/stats` as a normal user and show `403`,
+   or demonstrate it with an admin token if available.
 
----
+Closing line:
 
-## 7. Suggested 15-minute demo order
-
-1. **(A)** `GET /api/health` — prove it's up. Then `POST /auth/register` in
-   Swagger → show the returned JWT → paste into **Authorize**.
-2. **(A)** `GET /auth/me` — proves the token identifies the user.
-   Then hit `/admin/stats` as a normal user → **403**, explaining role gating.
-3. **(B)** `POST /api/expenses` → `GET /api/expenses`. Show the new row in
-   MySQL (`SELECT * FROM expenses;`) to close the loop to the database.
-4. **(B)** `POST /api/daily-logs` twice with the same date → still one row.
-   Explain the unique constraint + upsert. Show the habit collection tables and
-   the meals JSON column.
-5. **(C)** `GET /api/analytics` → point out the numbers came from the rows just
-   created. Then `GET /api/insights` → show a rule firing because of that data.
-6. **(C)** (optional) FastAPI `/docs` → `POST /chat` with LM Studio, note the
-   Pydantic validation + rule fallback, and that it works with Wi-Fi off.
-
-Closing line: *"Same request path every time — filter, controller, DTO,
-service, repository, MySQL — and the only things that differ are the 7
-pipelines we just showed."*
+> React collects and renders; Spring authenticates, validates, applies domain
+> rules and owns the data; JPA persists it in MySQL; Python remains an optional
+> Phase 4 consumer of trusted Spring context.
 
 ---
 
-## 8. Likely teacher questions (rapid fire)
+## 10. Definition of done before the presentation
 
-| Question | Owner | Short answer |
-| --- | --- | --- |
-| Why Spring Boot? | any | Auto-config, embedded server, huge ecosystem, DI/AOP built in |
-| Difference: `@Controller` vs `@RestController`? | any | `@RestController` = `@Controller` + `@ResponseBody` → returns data, not views |
-| Where's the SQL? | B | Nowhere written by hand — Spring Data derives it from method names; Hibernate generates DDL/DML |
-| Is the JWT encrypted? | A | No — signed. Anyone can read the payload; nobody can forge it without the secret |
-| How is the password stored? | A | BCrypt hash with per-password salt; never reversible, never returned |
-| What if two users log the same date? | B | Constraint is `(userId, date)`, so both can log the same day — isolation is per user |
-| Why MySQL over MongoDB (we migrated)? | B | Relational integrity, real constraints/FKs, SQL aggregation; we swapped entities to JPA and Hibernate created the schema |
-| What happens if the AI service is down? | C | Rule-based insights still serve; chat shows a graceful message — no crash |
-| How would you scale this? | any | Stateless JWT → run N instances behind a load balancer; move aggregation into SQL; add caching/indexes |
-| What's missing / next? | any | Refresh tokens, Flyway migrations, unit + integration tests, pagination, SQL-side aggregation, secrets out of `application.yml` |
+### Complete
+
+- [x] Reference endpoint is wired into React.
+- [x] Expense and mood values are validated server-side.
+- [x] Daily-log today/date lookup is implemented and wired.
+- [x] Settings defaults persist and updates survive a second GET.
+- [x] AI context uses the authenticated user and respects the `days` window.
+- [x] CRUD requests have been exercised against real MySQL.
+- [x] Swagger exposes the current 28 operations.
+
+### Required final cleanup
+
+- [ ] Remove/replace seeded random charts in `AnalyticsPage`.
+- [ ] Remove/replace `HABIT_SEGMENTS` if it is not API-backed.
+- [ ] Remove/replace hardcoded dashboard Stress/Hydration/Heart Rate metrics.
+- [ ] Remove/replace Admin `FUNNEL`, fallback `STAT_CARDS` and seeded charts
+      unless their values come from `/api/admin/stats`.
+- [ ] Use honest loading/error/empty states where no backend data exists.
+- [ ] Search the frontend once more for fake application metrics.
+- [ ] Run frontend lint and production build after the cleanup.
+- [ ] Smoke-test the Swagger demo sequence against MySQL.
+
+### Explicitly deferred
+
+- [ ] Pagination for unbounded expense/journal lists.
+- [ ] SQL-side aggregation.
+- [ ] Flyway/Liquibase migrations.
+- [ ] Refresh tokens and revocation.
+- [ ] New dashboard-summary or steps-actual endpoints.
+- [ ] Python service authentication and Phase 4 AI/RAG work.
 
 ---
 
-## 9. Known weak spots — better to own them than get caught
+## 11. Likely questions and concise answers
 
-Saying these *before* being asked reads as maturity:
+| Question | Answer |
+| --- | --- |
+| How do React and Spring communicate? | The browser sends JSON over HTTP using `fetch`; Spring maps the method/path and returns status plus JSON. |
+| Does React access MySQL? | No. Only Spring repositories/JPA access MySQL. |
+| Where is the SQL? | Hibernate generates writes and Spring Data derives most queries from repository method names. |
+| Where does business logic live? | Spring services and configuration properties; React keeps interaction and presentation transformations. |
+| Why can React still calculate chart coordinates? | That changes how facts are drawn, not what the business facts are. |
+| How is user isolation enforced? | JWT establishes the current user; repository queries include that user ID. |
+| Why both DTO validation and service validation? | DTO constraints validate shape/range; services validate domain membership and use-case rules. |
+| Is `/api/ai-context` an AI endpoint? | It is a trusted aggregation endpoint for a future AI consumer; it performs no model inference. |
+| Why not Spring AI? | Phase 4 AI will use a separate Python service; Spring remains the stable CRUD/domain backend. |
+| What happens when data is absent? | The API returns an empty/204 result as designed and React renders an honest empty state, never invented metrics. |
+| Why no pagination yet? | It is acknowledged scalability work, intentionally deferred from the Phase 3 architecture goal. |
+| Why Java aggregation rather than SQL? | Simpler and sufficient for the current data size; SQL aggregation is a known scaling improvement. |
+| Why JWT instead of sessions? | Stateless requests are simple to scale and do not require a server-side session store. |
+| Is JWT encrypted? | No. It is signed; the payload is readable but cannot be altered without invalidating the signature. |
 
-1. **`ddl-auto: update`** is convenient for dev, wrong for production — should be Flyway/Liquibase migrations.
-2. **DB password + JWT secret sit in `application.yml`** — should be env vars / a secrets manager.
-3. **No automated tests yet** — the whole thing was verified manually via Swagger/HTTP; unit tests for services and `@WebMvcTest` for controllers are the obvious next step.
-4. **Aggregation happens in Java, not SQL** — fine at this data size, wouldn't scale.
-5. **No pagination** on list endpoints — `GET /api/expenses` returns everything.
-6. **No refresh tokens** — a 24h JWT can't be revoked before it expires.
+---
+
+## 12. Known limitations — state them confidently
+
+1. `ddl-auto: update` is appropriate for local development, not controlled
+   production schema evolution; use Flyway or Liquibase later.
+2. The local datasource password is written directly in `application.yml`;
+   it must move to environment variables or a secret manager before deployment.
+3. The JWT development default must be overridden in production.
+4. There are no backend automated tests in the current repository; add service,
+   controller and MySQL integration tests.
+5. Expense and journal list endpoints are unpaginated.
+6. Analytics currently aggregates some full lists in Java; move heavy
+   aggregation to SQL as data volume grows.
+7. JWTs have no refresh/revocation mechanism.
+8. Actuator endpoints are public for local Prometheus use and must be restricted
+   before public deployment.
+9. The Python service is out of Phase 3 scope and remains unauthenticated; it
+   must not be publicly exposed or trusted with arbitrary browser user IDs.
+10. Fake frontend metrics are unacceptable for the final demo and must be
+    removed or replaced with honest empty states.
+
+Owning these limitations demonstrates architectural judgment. None changes the
+core Phase 3 result: the Spring/MySQL API is the source of truth, React is its
+presentation client, and the future Python AI layer remains replaceable.
