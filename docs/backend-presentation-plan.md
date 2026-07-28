@@ -169,6 +169,14 @@ Spring OpenAPI: http://localhost:8080/v3/api-docs
 FastAPI docs:  http://localhost:8100/docs
 ```
 
+Deep-trace interview guides:
+
+- [JWT Authentication](../API%20Authentication/Tracing%20JWT%20Authentication.md)
+- [Create Expense](../API%20Create%20Expense/Tracing%20Create%20Expense%20API.md)
+- [Daily Log and Habits](../API%20Daily%20Log%20and%20Habits/Tracing%20Daily%20Log%20and%20Habits.md)
+- [Date-Range Analytics](../API%20Analytics/Tracing%20Date%20Range%20Analytics.md)
+- [AI Insights](../API%20AI%20Insights/Tracing%20AI%20Insights%20API.md)
+
 ---
 
 ## 4. Current Spring endpoint inventory
