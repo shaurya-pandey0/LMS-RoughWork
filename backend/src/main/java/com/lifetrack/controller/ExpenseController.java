@@ -5,6 +5,7 @@ import com.lifetrack.dto.ExpenseDtos.ExpenseResponse;
 import com.lifetrack.security.SecurityUtils;
 import com.lifetrack.service.ExpenseService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -14,8 +15,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,8 +33,11 @@ public class ExpenseController {
     }
 
     @GetMapping
-    public List<ExpenseResponse> list() {
-        return expenseService.findAll(SecurityUtils.currentUserId()).stream()
+    public List<ExpenseResponse> list(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        return expenseService.findAll(SecurityUtils.currentUserId(), from, to).stream()
                 .map(ExpenseResponse::from)
                 .collect(Collectors.toList());
     }

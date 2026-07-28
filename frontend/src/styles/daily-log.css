@@ -337,6 +337,29 @@
 }
 
 
+/* ── Wellbeing Controls ── */
+
+.wellbeing-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  margin-top: var(--space-4);
+}
+
+.wellbeing-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.wellbeing-item__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-800);
+}
+
+
 /* ── Mood Selectors ── */
 
 .mood-group {
@@ -443,3 +466,170 @@
     flex-direction: column;
   }
 }
+
+/* ── Tabs Navigation ── */
+.daily-log__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.daily-log__tabs {
+  display: inline-flex;
+  background: var(--sand-200);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  gap: 4px;
+}
+
+.daily-log__tab {
+  padding: var(--space-2) var(--space-5);
+  border: none;
+  background: transparent;
+  color: var(--taupe-600);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.daily-log__tab:hover {
+  color: var(--ink-900);
+}
+
+.daily-log__tab--active {
+  background: var(--sand-0);
+  color: var(--clay-700);
+  font-weight: var(--weight-semibold);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* ── History Card & Items ── */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4);
+  background: var(--sand-50);
+  border: 1px solid var(--sand-200);
+  border-radius: var(--radius-md);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.history-item:hover {
+  border-color: var(--sand-300);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.history-item__date {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--ink-900);
+}
+
+.history-item__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.history-item__chip {
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  background: var(--sand-200);
+  color: var(--ink-800);
+  border-radius: var(--radius-pill);
+}
+
+.history-item__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ── My Habits Card & Management ── */
+.my-habits__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.my-habits__count {
+  font-size: var(--text-xs);
+  color: var(--taupe-600);
+}
+
+.habit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--sand-50);
+  border: 1px solid var(--sand-200);
+  margin-bottom: var(--space-2);
+  transition: all 150ms ease;
+}
+
+.habit-item:hover {
+  border-color: var(--sand-300);
+}
+
+.habit-item__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+}
+
+.habit-item__name {
+  font-size: var(--text-sm);
+  color: var(--ink-800);
+  cursor: pointer;
+}
+
+.habit-item__name--completed {
+  text-decoration: line-through;
+  color: var(--taupe-600);
+}
+
+.habit-item__actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.habit-item__action-btn {
+  background: transparent;
+  border: none;
+  color: var(--taupe-600);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 150ms ease;
+}
+
+.habit-item__action-btn:hover {
+  color: var(--clay-700);
+  background: var(--sand-200);
+}
+
+.my-habits__add-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+

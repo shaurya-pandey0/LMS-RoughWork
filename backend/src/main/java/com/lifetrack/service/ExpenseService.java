@@ -23,6 +23,21 @@ public class ExpenseService {
     }
 
     public List<Expense> findAll(Long userId) {
+        return findAll(userId, null, null);
+    }
+
+    public List<Expense> findAll(Long userId, LocalDate from, LocalDate to) {
+        if (from != null || to != null) {
+            LocalDate end = (to != null) ? to : LocalDate.now();
+            LocalDate start = (from != null) ? from : end.withDayOfMonth(1);
+            if (start.isAfter(end)) {
+                throw new BadRequestException("'from' date (" + start + ") cannot be after 'to' date (" + end + ")");
+            }
+            return expenseRepository.findByUserIdAndDateBetween(userId, start, end)
+                    .stream()
+                    .sorted((a, b) -> b.getDate().compareTo(a.getDate()))
+                    .collect(java.util.stream.Collectors.toList());
+        }
         return expenseRepository.findByUserIdOrderByDateDesc(userId);
     }
 

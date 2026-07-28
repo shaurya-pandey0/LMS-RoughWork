@@ -44,6 +44,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -52,6 +53,11 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
+            .exceptionHandling(eh -> eh
+                .authenticationEntryPoint((request, response, authException) ->
+                    response.sendError(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+                )
+            )
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -61,9 +67,21 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(corsProperties.getAllowedOrigins());
+        List<String> origins = corsProperties.getAllowedOrigins();
+        if (origins != null && !origins.isEmpty()) {
+            configuration.setAllowedOrigins(origins);
+        } else {
+            configuration.setAllowedOrigins(List.of(
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                    "http://localhost:5174",
+                    "http://127.0.0.1:5174",
+                    "http://localhost:3000"
+            ));
+        }
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(List.of("Authorization", "Location", "Content-Type"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

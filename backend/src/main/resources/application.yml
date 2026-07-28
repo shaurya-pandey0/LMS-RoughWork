@@ -21,7 +21,7 @@ app:
     expiration-ms: ${APP_JWT_EXPIRATION_MS:86400000}
   cors:
     # Comma-separated list of allowed frontend origins
-    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000}
   insights:
     # Thresholds for the rule-based insight engine (GET /api/insights)
     min-sleep-hours: ${APP_INSIGHTS_MIN_SLEEP_HOURS:6.0}

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import './styles/expenses.css';
-import { expenseApi } from './lib/api.js';
+import { expenseApi, analyticsApi } from './lib/api.js';
 import { useReference, colorForCategory } from './lib/reference.jsx';
 
 /* Category list comes from the backend (/api/reference); only the colour
@@ -78,9 +78,6 @@ function DonutChart({ segments }) {
   );
 }
 
-/* ── Seed data ── */
-const INITIAL_TXNS = [];
-
 /* Friendly "Dec 27"-style label from an ISO yyyy-mm-dd. */
 function isoToShort(iso) {
   if (!iso) return '';
@@ -89,33 +86,67 @@ function isoToShort(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function formatLocalDate(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultFromDate() {
+  const now = new Date();
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+}
+
+function getDefaultToDate() {
+  return formatLocalDate(new Date());
+}
+
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDate(new Date());
 }
 
 export default function ExpensesPage() {
-  const { expenseCategories, settings } = useReference();
-  const monthlyBudget = settings?.monthlyBudget ?? 0;
+  const { expenseCategories } = useReference();
 
-  const [txns, setTxns] = useState(INITIAL_TXNS);
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState('');
-  // '' means "not chosen yet" — we fall back to the first backend category at
-  // render/submit time rather than syncing state in an effect.
+  const [fromDate] = useState(getDefaultFromDate);
+  const [toDate] = useState(getDefaultToDate);
+
   const [categoryChoice, setCategoryChoice] = useState('');
   const defaultCategory = () => expenseCategories[0] || '';
   const category = categoryChoice || defaultCategory();
   const setCategory = setCategoryChoice;
+
   const [editingId, setEditingId] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
+
+  const [txns, setTxns] = useState([]);
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState('');
   const [amountError, setAmountError] = useState('');
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
 
-  // Load expenses from the backend on mount.
+  const refreshData = () => {
+    Promise.all([expenseApi.list(fromDate, toDate), analyticsApi.summary(fromDate, toDate)])
+      .then(([data, summaryData]) => {
+        setTxns((data || []).map((e) => ({
+          id: e.id,
+          isoDate: e.date,
+          date: isoToShort(e.date),
+          category: e.category,
+          amount: Number(e.amount),
+        })));
+        setAnalytics(summaryData);
+      })
+      .catch(() => {});
+  };
+
+  // Load expenses and backend-computed analytics on mount using same PC-local current-month range.
   useEffect(() => {
     let cancelled = false;
-    expenseApi.list()
-      .then((data) => {
+    Promise.all([expenseApi.list(fromDate, toDate), analyticsApi.summary(fromDate, toDate)])
+      .then(([data, summaryData]) => {
         if (cancelled) return;
         setTxns((data || []).map((e) => ({
           id: e.id,
@@ -124,12 +155,13 @@ export default function ExpensesPage() {
           category: e.category,
           amount: Number(e.amount),
         })));
+        setAnalytics(summaryData);
         setPageError('');
       })
       .catch((err) => { if (!cancelled) setPageError(err.message || 'Could not load expenses'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [fromDate, toDate]);
 
   const handleSubmit = async () => {
     const value = parseFloat(amount);
@@ -158,6 +190,7 @@ export default function ExpensesPage() {
       setAmount('');
       setDate('');
       setCategory(defaultCategory());
+      refreshData();
     } catch (err) {
       setPageError(err.message || 'Could not save that expense');
     }
@@ -192,25 +225,30 @@ export default function ExpensesPage() {
     }
     try {
       await expenseApi.remove(id);
+      refreshData();
     } catch (err) {
       setTxns(snapshot);
       setPageError(err.message || 'Could not delete that expense');
     }
   };
 
-  const total = useMemo(() => txns.reduce((s, t) => s + t.amount, 0), [txns]);
+  // Business totals come from Spring (/api/analytics) — React does NOT compute these.
+  const total = analytics?.totalExpenses ?? 0;
 
   const segments = useMemo(() => {
-    return expenseCategories.map((c) => ({
-      label: c,
-      color: colorForCategory(c),
-      value: txns.filter((t) => t.category === c).reduce((s, t) => s + t.amount, 0),
-    })).filter((s) => s.value > 0);
-  }, [txns, expenseCategories]);
+    if (!analytics?.expensesByCategory) return [];
+    return Object.entries(analytics.expensesByCategory)
+      .map(([cat, val]) => ({
+        label: cat,
+        color: colorForCategory(cat),
+        value: Number(val),
+      }))
+      .filter((s) => s.value > 0);
+  }, [analytics]);
 
-  const spendPct = monthlyBudget > 0 ? Math.min((total / monthlyBudget) * 100, 100) : 0;
+  const spendPct = analytics?.budgetUsagePct ?? 0;
   const fmtMoney = (n) =>
-    n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 2)}k` : `$${n.toFixed(2)}`;
+    n >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 2)}k` : `₹${n.toFixed(2)}`;
 
   return (
     <div className="app-shell" data-screen-label="Expenses">
@@ -243,7 +281,7 @@ export default function ExpensesPage() {
               <div className="entry-field">
                 <label className="entry-field__label" htmlFor="entry-amount">Transaction Amount</label>
                 <div className="entry-input-row">
-                  <span className="entry-input-row__icon">$</span>
+                  <span className="entry-input-row__icon">₹</span>
                   <input
                     id="entry-amount"
                     type="number"
@@ -339,7 +377,7 @@ export default function ExpensesPage() {
                       </span>
                       <span className="txn-pill__date">{t.date}</span>
                       <span className="txn-pill__cat">{t.category}</span>
-                      <span className="txn-pill__amt">${t.amount.toFixed(2)}</span>
+                      <span className="txn-pill__amt">₹{t.amount.toFixed(2)}</span>
                       <span style={{ display: 'inline-flex', gap: 'var(--space-2)' }}>
                         <button className="txn-action" onClick={() => handleEdit(t)} aria-label={`Edit ${t.category} transaction`}>
                           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2l3 3-8 8H3v-3z" /></svg>
@@ -376,7 +414,7 @@ export default function ExpensesPage() {
 
               <div className="breakdown__legend">
                 {expenseCategories.map((c) => {
-                  const value = txns.filter((t) => t.category === c).reduce((s, t) => s + t.amount, 0);
+                  const value = analytics?.expensesByCategory?.[c] ?? 0;
                   const pct = total ? (value / total) * 100 : 0;
                   return (
                     <div className="breakdown__legend-item" key={c}>

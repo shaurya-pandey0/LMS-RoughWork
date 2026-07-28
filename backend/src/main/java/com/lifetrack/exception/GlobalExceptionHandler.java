@@ -4,6 +4,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -25,6 +26,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(BadRequestException ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleNotReadable(HttpMessageNotReadableException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Invalid request body or parameter value");
     }
 
     @ExceptionHandler(BadCredentialsException.class)

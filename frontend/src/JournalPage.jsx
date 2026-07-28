@@ -16,8 +16,15 @@ function formatDate(iso) {
   return `${m}/${d}/${y}`;
 }
 
+function formatLocalDate(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDate(new Date());
 }
 
 /* ── Seed journal entries ── */

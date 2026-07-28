@@ -8,10 +8,16 @@ public class AnalyticsDtos {
 
     public record SleepPoint(LocalDate date, Double hours) {}
 
+    public record DailyExpensePoint(LocalDate date, double totalAmount) {}
+
     public record UserAnalyticsResponse(
+            List<SleepPoint> sleepPoints,
             List<SleepPoint> weeklySleep,
+            List<DailyExpensePoint> dailyExpenses,
             Map<String, Double> expensesByCategory,
             double totalExpenses,
+            double budgetUsagePct,
+            double monthlyBudget,
             Map<String, Long> moodCounts,
             long journalEntryCount
     ) {}

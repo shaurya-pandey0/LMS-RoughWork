@@ -35,11 +35,21 @@ CREATE TEMPORARY TABLE demo_days (
     user1_morning VARCHAR(40) NOT NULL,
     user1_afternoon VARCHAR(40) NOT NULL,
     user1_evening VARCHAR(40) NOT NULL,
+    user1_sleep_quality INT NOT NULL,
+    user1_stress INT NOT NULL,
+    user1_energy INT NOT NULL,
+    user1_productivity INT NOT NULL,
+    user1_day_type VARCHAR(30) NOT NULL,
     user2_sleep DOUBLE NOT NULL,
     user2_water DOUBLE NOT NULL,
     user2_morning VARCHAR(40) NOT NULL,
     user2_afternoon VARCHAR(40) NOT NULL,
-    user2_evening VARCHAR(40) NOT NULL
+    user2_evening VARCHAR(40) NOT NULL,
+    user2_sleep_quality INT NOT NULL,
+    user2_stress INT NOT NULL,
+    user2_energy INT NOT NULL,
+    user2_productivity INT NOT NULL,
+    user2_day_type VARCHAR(30) NOT NULL
 );
 
 INSERT INTO demo_days (
@@ -50,20 +60,30 @@ INSERT INTO demo_days (
     user1_morning,
     user1_afternoon,
     user1_evening,
+    user1_sleep_quality,
+    user1_stress,
+    user1_energy,
+    user1_productivity,
+    user1_day_type,
     user2_sleep,
     user2_water,
     user2_morning,
     user2_afternoon,
-    user2_evening
+    user2_evening,
+    user2_sleep_quality,
+    user2_stress,
+    user2_energy,
+    user2_productivity,
+    user2_day_type
 )
 VALUES
-    (6, DATE_SUB(@demo_end_date, INTERVAL 6 DAY), 6.2, 1650, 'okay',  'good',  'okay', 7.8, 2300, 'great', 'good',  'good'),
-    (5, DATE_SUB(@demo_end_date, INTERVAL 5 DAY), 6.8, 1900, 'good',  'good',  'good', 7.5, 2150, 'good',  'good',  'okay'),
-    (4, DATE_SUB(@demo_end_date, INTERVAL 4 DAY), 7.1, 2100, 'good',  'great', 'good', 7.2, 2000, 'good',  'okay',  'good'),
-    (3, DATE_SUB(@demo_end_date, INTERVAL 3 DAY), 7.4, 2250, 'great', 'good',  'great', 6.9, 1850, 'okay',  'good',  'okay'),
-    (2, DATE_SUB(@demo_end_date, INTERVAL 2 DAY), 7.8, 2500, 'great', 'great', 'good', 7.7, 2400, 'great', 'great', 'good'),
-    (1, DATE_SUB(@demo_end_date, INTERVAL 1 DAY), 8.0, 2600, 'great', 'good',  'great', 8.1, 2550, 'great', 'good',  'great'),
-    (0, @demo_end_date,                         7.6, 2400, 'good',  'great', 'good', 7.4, 2250, 'good',  'great', 'good');
+    (6, DATE_SUB(@demo_end_date, INTERVAL 6 DAY), 6.2, 1650, 'okay',  'good',  'okay',  2, 4, 2, 3, 'STUDY_WORK', 7.8, 2300, 'great', 'good',  'good',  4, 2, 4, 4, 'STUDY_WORK'),
+    (5, DATE_SUB(@demo_end_date, INTERVAL 5 DAY), 6.8, 1900, 'good',  'good',  'good',  3, 3, 3, 3, 'STUDY_WORK', 7.5, 2150, 'good',  'good',  'okay',  4, 2, 4, 3, 'STUDY_WORK'),
+    (4, DATE_SUB(@demo_end_date, INTERVAL 4 DAY), 7.1, 2100, 'good',  'great', 'good',  4, 2, 4, 4, 'STUDY_WORK', 7.2, 2000, 'good',  'okay',  'good',  3, 3, 3, 4, 'STUDY_WORK'),
+    (3, DATE_SUB(@demo_end_date, INTERVAL 3 DAY), 7.4, 2250, 'great', 'good',  'great', 4, 2, 4, 4, 'STUDY_WORK', 6.9, 1850, 'okay',  'good',  'okay',  3, 4, 2, 3, 'STUDY_WORK'),
+    (2, DATE_SUB(@demo_end_date, INTERVAL 2 DAY), 7.8, 2500, 'great', 'great', 'good',  5, 1, 5, 5, 'DAY_OFF',    7.7, 2400, 'great', 'great', 'good',  5, 1, 5, 4, 'DAY_OFF'),
+    (1, DATE_SUB(@demo_end_date, INTERVAL 1 DAY), 8.0, 2600, 'great', 'good',  'great', 5, 1, 4, 4, 'DAY_OFF',    8.1, 2550, 'great', 'good',  'great', 5, 1, 5, 5, 'DAY_OFF'),
+    (0, @demo_end_date,                         7.6, 2400, 'good',  'great', 'good',  4, 2, 4, 4, 'STUDY_WORK', 7.4, 2250, 'good',  'great', 'good',  4, 2, 4, 4, 'STUDY_WORK');
 
 START TRANSACTION;
 
@@ -105,6 +125,11 @@ INSERT INTO daily_logs (
     sleep_hours,
     step_target,
     water_intake,
+    sleep_quality,
+    stress_level,
+    energy_level,
+    productivity_level,
+    day_type,
     morning_mood,
     afternoon_mood,
     evening_mood,
@@ -118,6 +143,11 @@ SELECT
     CASE WHEN u.id = @demo_user_1 THEN d.user1_sleep ELSE d.user2_sleep END,
     CASE WHEN u.id = @demo_user_1 THEN 8000 ELSE 10000 END,
     CASE WHEN u.id = @demo_user_1 THEN d.user1_water ELSE d.user2_water END,
+    CASE WHEN u.id = @demo_user_1 THEN d.user1_sleep_quality ELSE d.user2_sleep_quality END,
+    CASE WHEN u.id = @demo_user_1 THEN d.user1_stress ELSE d.user2_stress END,
+    CASE WHEN u.id = @demo_user_1 THEN d.user1_energy ELSE d.user2_energy END,
+    CASE WHEN u.id = @demo_user_1 THEN d.user1_productivity ELSE d.user2_productivity END,
+    CASE WHEN u.id = @demo_user_1 THEN d.user1_day_type ELSE d.user2_day_type END,
     CASE WHEN u.id = @demo_user_1 THEN d.user1_morning ELSE d.user2_morning END,
     CASE WHEN u.id = @demo_user_1 THEN d.user1_afternoon ELSE d.user2_afternoon END,
     CASE WHEN u.id = @demo_user_1 THEN d.user1_evening ELSE d.user2_evening END,
@@ -135,6 +165,11 @@ ON DUPLICATE KEY UPDATE
     sleep_hours = VALUES(sleep_hours),
     step_target = VALUES(step_target),
     water_intake = VALUES(water_intake),
+    sleep_quality = VALUES(sleep_quality),
+    stress_level = VALUES(stress_level),
+    energy_level = VALUES(energy_level),
+    productivity_level = VALUES(productivity_level),
+    day_type = VALUES(day_type),
     morning_mood = VALUES(morning_mood),
     afternoon_mood = VALUES(afternoon_mood),
     evening_mood = VALUES(evening_mood),

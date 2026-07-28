@@ -1,6 +1,9 @@
 package com.lifetrack.dto;
 
 import com.lifetrack.entity.DailyLog;
+import com.lifetrack.entity.DayType;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -26,6 +29,25 @@ public class DailyLogDtos {
             Double sleepHours,
             Integer stepTarget,
             Double waterIntake,
+
+            @Min(value = 1, message = "Sleep quality must be between 1 and 5")
+            @Max(value = 5, message = "Sleep quality must be between 1 and 5")
+            Integer sleepQuality,
+
+            @Min(value = 1, message = "Stress level must be between 1 and 5")
+            @Max(value = 5, message = "Stress level must be between 1 and 5")
+            Integer stressLevel,
+
+            @Min(value = 1, message = "Energy level must be between 1 and 5")
+            @Max(value = 5, message = "Energy level must be between 1 and 5")
+            Integer energyLevel,
+
+            @Min(value = 1, message = "Productivity level must be between 1 and 5")
+            @Max(value = 5, message = "Productivity level must be between 1 and 5")
+            Integer productivityLevel,
+
+            DayType dayType,
+
             List<String> transactionalHabits,
             List<String> embeddedHabits,
             List<MealDto> meals,
@@ -40,6 +62,11 @@ public class DailyLogDtos {
             Double sleepHours,
             Integer stepTarget,
             Double waterIntake,
+            Integer sleepQuality,
+            Integer stressLevel,
+            Integer energyLevel,
+            Integer productivityLevel,
+            DayType dayType,
             List<String> transactionalHabits,
             List<String> embeddedHabits,
             List<MealDto> meals,
@@ -60,6 +87,11 @@ public class DailyLogDtos {
                     log.getSleepHours(),
                     log.getStepTarget(),
                     log.getWaterIntake(),
+                    log.getSleepQuality(),
+                    log.getStressLevel(),
+                    log.getEnergyLevel(),
+                    log.getProductivityLevel(),
+                    log.getDayType(),
                     log.getTransactionalHabits(),
                     log.getEmbeddedHabits(),
                     mealDtos,
@@ -70,3 +102,4 @@ public class DailyLogDtos {
         }
     }
 }
+

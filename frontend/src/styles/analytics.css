@@ -67,6 +67,19 @@
   cursor: pointer;
 }
 
+.range-bar__date-input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  background: var(--sand-50);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-800);
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .range-bar__btn {
   display: inline-flex;
   align-items: center;

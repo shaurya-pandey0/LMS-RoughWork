@@ -97,12 +97,33 @@ export const dailyLogApi = {
   byDate: (date) => api.get(`/daily-logs?date=${date}`),
   get: (id) => api.get(`/daily-logs/${id}`),
   upsert: (data) => api.post('/daily-logs', data),
+  merge: (data) => api.post('/daily-logs/merge', data),
   update: (id, data) => api.put(`/daily-logs/${id}`, data),
   remove: (id) => api.del(`/daily-logs/${id}`),
 };
 
+export const habitApi = {
+  list: (date) => api.get(date ? `/habits?date=${date}` : '/habits'),
+  create: (data) => api.post('/habits', data),
+  update: (id, data) => api.put(`/habits/${id}`, data),
+  deactivate: (id) => api.del(`/habits/${id}`),
+  toggle: (id, date, completed) => {
+    const params = new URLSearchParams();
+    if (date) params.append('date', date);
+    if (completed !== undefined && completed !== null) params.append('completed', String(completed));
+    const queryString = params.toString();
+    return api.post(`/habits/${id}/toggle${queryString ? `?${queryString}` : ''}`);
+  },
+};
+
 export const expenseApi = {
-  list: () => api.get('/expenses'),
+  list: (from, to) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const q = params.toString();
+    return api.get(q ? `/expenses?${q}` : '/expenses');
+  },
   create: (data) => api.post('/expenses', data),
   update: (id, data) => api.put(`/expenses/${id}`, data),
   remove: (id) => api.del(`/expenses/${id}`),
@@ -116,7 +137,13 @@ export const journalApi = {
 };
 
 export const analyticsApi = {
-  summary: () => api.get('/analytics'),
+  summary: (from, to) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const q = params.toString();
+    return api.get(q ? `/analytics?${q}` : '/analytics');
+  },
 };
 
 export const insightsApi = {

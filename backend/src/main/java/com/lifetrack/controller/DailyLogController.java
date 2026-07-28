@@ -72,6 +72,13 @@ public class DailyLogController {
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
+    @PostMapping("/merge")
+    public ResponseEntity<DailyLogResponse> merge(@Valid @RequestBody DailyLogRequest request) {
+        DailyLogResponse body = DailyLogResponse.from(
+                dailyLogService.merge(SecurityUtils.currentUserId(), request));
+        return ResponseEntity.status(HttpStatus.OK).body(body);
+    }
+
     @PutMapping("/{id}")
     public DailyLogResponse update(@PathVariable Long id, @Valid @RequestBody DailyLogRequest request) {
         return DailyLogResponse.from(dailyLogService.update(SecurityUtils.currentUserId(), id, request));

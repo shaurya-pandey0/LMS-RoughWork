@@ -29,9 +29,9 @@ const BAR_DATA = [
 
 /* ─── Expense list items shown in the preview card ─── */
 const EXPENSES = [
-  { label: 'Food & Dining',   amount: '$240' },
-  { label: 'Transportation',  amount: '$85'  },
-  { label: 'Health & Fitness',amount: '$120' },
+  { label: 'Food & Dining',   amount: '₹240' },
+  { label: 'Transportation',  amount: '₹85'  },
+  { label: 'Health & Fitness',amount: '₹120' },
 ];
 
 export default function LandingPage() {

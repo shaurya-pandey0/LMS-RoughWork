@@ -5,6 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -38,6 +40,15 @@ public class DailyLog {
     private Double sleepHours;
     private Integer stepTarget;
     private Double waterIntake;
+
+    private Integer sleepQuality;
+    private Integer stressLevel;
+    private Integer energyLevel;
+    private Integer productivityLevel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private DayType dayType;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
@@ -190,6 +201,46 @@ public class DailyLog {
 
     public void setEveningMood(String eveningMood) {
         this.eveningMood = eveningMood;
+    }
+
+    public Integer getSleepQuality() {
+        return sleepQuality;
+    }
+
+    public void setSleepQuality(Integer sleepQuality) {
+        this.sleepQuality = sleepQuality;
+    }
+
+    public Integer getStressLevel() {
+        return stressLevel;
+    }
+
+    public void setStressLevel(Integer stressLevel) {
+        this.stressLevel = stressLevel;
+    }
+
+    public Integer getEnergyLevel() {
+        return energyLevel;
+    }
+
+    public void setEnergyLevel(Integer energyLevel) {
+        this.energyLevel = energyLevel;
+    }
+
+    public Integer getProductivityLevel() {
+        return productivityLevel;
+    }
+
+    public void setProductivityLevel(Integer productivityLevel) {
+        this.productivityLevel = productivityLevel;
+    }
+
+    public DayType getDayType() {
+        return dayType;
+    }
+
+    public void setDayType(DayType dayType) {
+        this.dayType = dayType;
     }
 
     public Instant getCreatedAt() {
