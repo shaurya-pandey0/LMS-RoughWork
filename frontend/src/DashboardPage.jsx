@@ -73,8 +73,8 @@ export default function DashboardPage() {
     setAiError('');
     setAiLoading(true);
     try {
-      // Spring computes the context; the dashboard just relays it.
-      const ctx = await aiContextApi.get(7);
+      // Spring uses the user's saved insightPeriodDays by default.
+      const ctx = await aiContextApi.get();
       const res = await aiApi.insights({
         user_name: user?.fullName,
         context: {

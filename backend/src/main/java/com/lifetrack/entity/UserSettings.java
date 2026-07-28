@@ -8,9 +8,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * Per-user targets that used to be hardcoded in the frontend (monthly budget,
- * sleep/step/water targets). One row per user, created with sane defaults the
- * first time it's requested (see {@code UserSettingsService}).
+ * Per-user targets and insight preferences.  One row per user, created with
+ * sane defaults the first time it's requested (see {@code UserSettingsService}).
+ *
+ * <p>The four new insight-preference columns carry DDL defaults so that
+ * existing rows keep safe values when Hibernate's {@code update} DDL mode adds
+ * the columns.
  */
 @Entity
 @Table(name = "user_settings")
@@ -23,6 +26,7 @@ public class UserSettings {
     @Column(nullable = false, unique = true)
     private Long userId;
 
+    // ── display / budget targets (unchanged) ───────────────────────────────
     @Column(nullable = false)
     private double monthlyBudget = 4000.0;
 
@@ -35,51 +39,60 @@ public class UserSettings {
     @Column(nullable = false)
     private double waterTargetMl = 2000.0;
 
-    public Long getId() {
-        return id;
-    }
+    // ── AI / insight preferences (new) ─────────────────────────────────────
+    /** Trailing window analysed by insights & AI context (7–30 days). */
+    @Column(nullable = false, columnDefinition = "INT DEFAULT 7")
+    private int insightPeriodDays = 7;
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+    /**
+     * Minimum number of daily-log entries in the window before a rule fires.
+     * Must be ≤ insightPeriodDays.
+     */
+    @Column(nullable = false, columnDefinition = "INT DEFAULT 3")
+    private int minPairedDays = 3;
 
-    public Long getUserId() {
-        return userId;
-    }
+    /**
+     * Average sleep below this threshold triggers a warning.
+     * Must be strictly below sleepTargetHours.
+     */
+    @Column(nullable = false, columnDefinition = "DOUBLE DEFAULT 6.0")
+    private double lowSleepThreshold = 6.0;
 
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
+    /**
+     * Fraction of days (0–100 %) with at least one completed habit below which
+     * consistency is flagged.
+     */
+    @Column(nullable = false, columnDefinition = "INT DEFAULT 70")
+    private int habitConsistencyTarget = 70;
 
-    public double getMonthlyBudget() {
-        return monthlyBudget;
-    }
+    // ── getters / setters ──────────────────────────────────────────────────
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
-    public void setMonthlyBudget(double monthlyBudget) {
-        this.monthlyBudget = monthlyBudget;
-    }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 
-    public double getSleepTargetHours() {
-        return sleepTargetHours;
-    }
+    public double getMonthlyBudget() { return monthlyBudget; }
+    public void setMonthlyBudget(double monthlyBudget) { this.monthlyBudget = monthlyBudget; }
 
-    public void setSleepTargetHours(double sleepTargetHours) {
-        this.sleepTargetHours = sleepTargetHours;
-    }
+    public double getSleepTargetHours() { return sleepTargetHours; }
+    public void setSleepTargetHours(double sleepTargetHours) { this.sleepTargetHours = sleepTargetHours; }
 
-    public int getStepTarget() {
-        return stepTarget;
-    }
+    public int getStepTarget() { return stepTarget; }
+    public void setStepTarget(int stepTarget) { this.stepTarget = stepTarget; }
 
-    public void setStepTarget(int stepTarget) {
-        this.stepTarget = stepTarget;
-    }
+    public double getWaterTargetMl() { return waterTargetMl; }
+    public void setWaterTargetMl(double waterTargetMl) { this.waterTargetMl = waterTargetMl; }
 
-    public double getWaterTargetMl() {
-        return waterTargetMl;
-    }
+    public int getInsightPeriodDays() { return insightPeriodDays; }
+    public void setInsightPeriodDays(int insightPeriodDays) { this.insightPeriodDays = insightPeriodDays; }
 
-    public void setWaterTargetMl(double waterTargetMl) {
-        this.waterTargetMl = waterTargetMl;
-    }
+    public int getMinPairedDays() { return minPairedDays; }
+    public void setMinPairedDays(int minPairedDays) { this.minPairedDays = minPairedDays; }
+
+    public double getLowSleepThreshold() { return lowSleepThreshold; }
+    public void setLowSleepThreshold(double lowSleepThreshold) { this.lowSleepThreshold = lowSleepThreshold; }
+
+    public int getHabitConsistencyTarget() { return habitConsistencyTarget; }
+    public void setHabitConsistencyTarget(int habitConsistencyTarget) { this.habitConsistencyTarget = habitConsistencyTarget; }
 }

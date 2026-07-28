@@ -72,6 +72,8 @@ ai-service/.env
 # --- Logs & temp ----------------------------------------------------------
 *.log
 logs/
+# Development-only snapshot of the exact outbound LLM request.
+ai-service/prompt.md
 lint.txt
 *.tmp
 *.bak

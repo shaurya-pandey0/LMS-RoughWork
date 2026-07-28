@@ -1,12 +1,12 @@
 package com.lifetrack.service;
 
-import com.lifetrack.config.InsightProperties;
 import com.lifetrack.dto.InsightDtos.Insight;
 import com.lifetrack.dto.InsightDtos.InsightsResponse;
 import com.lifetrack.dto.InsightDtos.Severity;
 import com.lifetrack.entity.DailyLog;
 import com.lifetrack.entity.Expense;
 import com.lifetrack.entity.JournalEntry;
+import com.lifetrack.entity.UserSettings;
 import com.lifetrack.repository.DailyLogRepository;
 import com.lifetrack.repository.ExpenseRepository;
 import com.lifetrack.repository.JournalEntryRepository;
@@ -22,16 +22,16 @@ import java.util.Set;
 /**
  * Rule-based insight engine (Phase 4a).
  *
- * <p>Deterministic, dependency-free analysis of the user's trailing 7 days of
- * data. Always available and fast — no external AI service required. Each rule
- * emits at most one {@link Insight}; rules stay silent when there isn't enough
- * data to say anything meaningful.
+ * <p>All thresholds come from the requesting user's {@link UserSettings} so
+ * each user's preferences drive the analysis.  No global InsightProperties
+ * constants are used for per-user thresholds; {@code UserSettingsService}
+ * supplies the values instead.
+ *
+ * <p>Spending is treated as <em>period</em> spending; its threshold is derived
+ * from the user's monthly budget × period days ÷ 30.
  */
 @Service
 public class InsightService {
-
-    /** Window analysed by every rule: today plus the previous 6 days. */
-    private static final int WINDOW_DAYS = 7;
 
     private static final Set<String> NEGATIVE_MOODS = Set.of("anxious", "tired", "sad", "stressed", "angry");
     private static final Set<String> POSITIVE_MOODS = Set.of("happy", "calm", "grateful", "great", "good");
@@ -39,31 +39,37 @@ public class InsightService {
     private final DailyLogRepository dailyLogRepository;
     private final ExpenseRepository expenseRepository;
     private final JournalEntryRepository journalEntryRepository;
-    private final InsightProperties properties;
+    private final UserSettingsService userSettingsService;
 
     public InsightService(DailyLogRepository dailyLogRepository,
                           ExpenseRepository expenseRepository,
                           JournalEntryRepository journalEntryRepository,
-                          InsightProperties properties) {
+                          UserSettingsService userSettingsService) {
         this.dailyLogRepository = dailyLogRepository;
         this.expenseRepository = expenseRepository;
         this.journalEntryRepository = journalEntryRepository;
-        this.properties = properties;
+        this.userSettingsService = userSettingsService;
     }
 
     public InsightsResponse generate(Long userId) {
+        UserSettings settings = userSettingsService.getOrCreate(userId);
+        int windowDays = settings.getInsightPeriodDays();
+
         LocalDate today = LocalDate.now();
-        LocalDate from = today.minusDays(WINDOW_DAYS - 1L);
+        LocalDate from = today.minusDays(windowDays - 1L);
 
         List<DailyLog> logs = dailyLogRepository.findByUserIdAndDateBetweenOrderByDateAsc(userId, from, today);
         List<Expense> expenses = expenseRepository.findByUserIdAndDateBetween(userId, from, today);
         List<JournalEntry> journals = journalEntryRepository.findByUserIdAndDateBetween(userId, from, today);
 
+        // Derive period spending threshold from monthly budget.
+        double spendThreshold = settings.getMonthlyBudget() * windowDays / 30.0;
+
         List<Insight> insights = new ArrayList<>();
-        evaluateSleep(logs, insights);
-        evaluateSpending(expenses, insights);
-        evaluateHabitConsistency(logs, insights);
-        evaluateHydration(logs, insights);
+        evaluateSleep(logs, settings, insights);
+        evaluateSpending(expenses, spendThreshold, windowDays, insights);
+        evaluateHabitConsistency(logs, settings, windowDays, insights);
+        evaluateHydration(logs, settings, insights);
         evaluateMood(logs, journals, insights);
 
         if (insights.isEmpty()) {
@@ -78,91 +84,97 @@ public class InsightService {
         return new InsightsResponse(from, today, insights);
     }
 
-    private void evaluateSleep(List<DailyLog> logs, List<Insight> insights) {
+    private void evaluateSleep(List<DailyLog> logs, UserSettings settings, List<Insight> insights) {
         OptionalDouble avg = logs.stream()
                 .filter(l -> l.getSleepHours() != null)
                 .mapToDouble(DailyLog::getSleepHours)
                 .average();
-        if (avg.isEmpty()) {
-            return;
-        }
+        if (avg.isEmpty()) return;
+
         double avgSleep = round(avg.getAsDouble());
-        if (avgSleep < properties.getMinSleepHours()) {
+        double lowThreshold = settings.getLowSleepThreshold();
+        double goodTarget = settings.getSleepTargetHours();
+
+        if (avgSleep < lowThreshold) {
             insights.add(new Insight(
                     "SLEEP",
                     Severity.WARNING,
                     "Insufficient sleep",
                     String.format(Locale.US,
-                            "You're averaging %.1f hours of sleep this week, below the %.1f-hour minimum. Try an earlier wind-down routine.",
-                            avgSleep, properties.getMinSleepHours()),
+                            "You're averaging %.1f hours of sleep this period, below your %.1f-hour threshold. " +
+                            "Try an earlier wind-down routine.",
+                            avgSleep, lowThreshold),
                     avgSleep));
-        } else if (avgSleep >= properties.getGoodSleepHours()) {
+        } else if (avgSleep >= goodTarget) {
             insights.add(new Insight(
                     "SLEEP",
                     Severity.POSITIVE,
                     "Healthy sleep",
                     String.format(Locale.US,
-                            "Nice work — you're averaging %.1f hours of sleep this week.", avgSleep),
+                            "Nice work — you're averaging %.1f hours of sleep this period.", avgSleep),
                     avgSleep));
         }
     }
 
-    private void evaluateSpending(List<Expense> expenses, List<Insight> insights) {
-        if (expenses.isEmpty()) {
-            return;
-        }
-        double weeklySpend = round(expenses.stream().mapToDouble(Expense::getAmount).sum());
-        if (weeklySpend > properties.getWeeklySpendingThreshold()) {
+    private void evaluateSpending(List<Expense> expenses, double spendThreshold,
+                                  int windowDays, List<Insight> insights) {
+        if (expenses.isEmpty()) return;
+        double periodSpend = round(expenses.stream().mapToDouble(Expense::getAmount).sum());
+        if (periodSpend > spendThreshold) {
             insights.add(new Insight(
                     "SPENDING",
                     Severity.WARNING,
                     "Overspending",
                     String.format(Locale.US,
-                            "You've spent %.2f over the past week, above your %.2f threshold. Review your largest categories.",
-                            weeklySpend, properties.getWeeklySpendingThreshold()),
-                    weeklySpend));
+                            "You've spent %.2f over the past %d days, above your %.2f period threshold. " +
+                            "Review your largest categories.",
+                            periodSpend, windowDays, spendThreshold),
+                    periodSpend));
         }
     }
 
-    private void evaluateHabitConsistency(List<DailyLog> logs, List<Insight> insights) {
-        // Need at least a few logged days before judging consistency.
-        if (logs.size() < 3) {
-            return;
-        }
+    private void evaluateHabitConsistency(List<DailyLog> logs, UserSettings settings,
+                                          int windowDays, List<Insight> insights) {
+        if (logs.size() < settings.getMinPairedDays()) return;
+
         long daysWithHabits = logs.stream()
                 .filter(l -> (l.getTransactionalHabits() != null && !l.getTransactionalHabits().isEmpty())
                         || (l.getEmbeddedHabits() != null && !l.getEmbeddedHabits().isEmpty()))
                 .count();
-        double rate = (double) daysWithHabits / WINDOW_DAYS;
-        if (rate < properties.getHabitConsistencyThreshold()) {
+        double rate = (double) daysWithHabits / windowDays;
+        double threshold = settings.getHabitConsistencyTarget() / 100.0;
+
+        if (rate < threshold) {
             insights.add(new Insight(
                     "HABITS",
                     Severity.WARNING,
                     "Low consistency",
                     String.format(Locale.US,
-                            "You logged habits on %d of the last %d days (%.0f%%). Small daily wins build momentum.",
-                            daysWithHabits, WINDOW_DAYS, rate * 100),
+                            "You logged habits on %d of the last %d days (%.0f%%). " +
+                            "Small daily wins build momentum.",
+                            daysWithHabits, windowDays, rate * 100),
                     round(rate)));
         }
     }
 
-    private void evaluateHydration(List<DailyLog> logs, List<Insight> insights) {
+    private void evaluateHydration(List<DailyLog> logs, UserSettings settings, List<Insight> insights) {
         OptionalDouble avg = logs.stream()
                 .filter(l -> l.getWaterIntake() != null)
                 .mapToDouble(DailyLog::getWaterIntake)
                 .average();
-        if (avg.isEmpty()) {
-            return;
-        }
+        if (avg.isEmpty()) return;
+
         double avgWater = round(avg.getAsDouble());
-        if (avgWater < properties.getMinWaterIntakeMl()) {
+        double waterTarget = settings.getWaterTargetMl();
+        if (avgWater < waterTarget) {
             insights.add(new Insight(
                     "HYDRATION",
                     Severity.WARNING,
                     "Low hydration",
                     String.format(Locale.US,
-                            "You're averaging %.0f ml of water a day, below the %.0f ml target. Keep a bottle within reach.",
-                            avgWater, properties.getMinWaterIntakeMl()),
+                            "You're averaging %.0f ml of water a day, below your %.0f ml target. " +
+                            "Keep a bottle within reach.",
+                            avgWater, waterTarget),
                     avgWater));
         }
     }
@@ -175,32 +187,23 @@ public class InsightService {
             addIfPresent(moods, log.getAfternoonMood());
             addIfPresent(moods, log.getEveningMood());
         }
-        if (moods.isEmpty()) {
-            return;
-        }
+        if (moods.isEmpty()) return;
+
         long negative = moods.stream().filter(m -> NEGATIVE_MOODS.contains(m.toLowerCase(Locale.US))).count();
         long positive = moods.stream().filter(m -> POSITIVE_MOODS.contains(m.toLowerCase(Locale.US))).count();
         if (negative > positive) {
-            insights.add(new Insight(
-                    "MOOD",
-                    Severity.WARNING,
-                    "Mood dip",
+            insights.add(new Insight("MOOD", Severity.WARNING, "Mood dip",
                     "Your recent moods skew negative. Consider what's draining you and lean on activities that recharge you.",
                     (double) negative));
         } else if (positive > 0 && positive >= negative) {
-            insights.add(new Insight(
-                    "MOOD",
-                    Severity.POSITIVE,
-                    "Positive mood",
-                    "Your mood has been largely positive this week. Keep doing what's working.",
+            insights.add(new Insight("MOOD", Severity.POSITIVE, "Positive mood",
+                    "Your mood has been largely positive this period. Keep doing what's working.",
                     (double) positive));
         }
     }
 
     private static void addIfPresent(List<String> moods, String mood) {
-        if (mood != null && !mood.isBlank()) {
-            moods.add(mood);
-        }
+        if (mood != null && !mood.isBlank()) moods.add(mood);
     }
 
     private static double round(double value) {

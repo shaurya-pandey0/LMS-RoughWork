@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import List, Optional, Type, TypeVar
 
 import httpx
@@ -34,6 +35,17 @@ T = TypeVar("T", bound=BaseModel)
 
 # Cached structured-output mode that the configured provider accepts.
 _WORKING_MODE: Optional[str] = None
+
+# ai-service/prompt.md lives two levels up from this file (app/ -> ai-service/)
+_PROMPT_FILE = Path(__file__).parent.parent / "prompt.md"
+
+
+def _dump_prompt(body: dict) -> None:
+    """Write the exact serialized request body to prompt.md, overwriting it each time."""
+    try:
+        _PROMPT_FILE.write_text(json.dumps(body), encoding="utf-8")
+    except OSError:
+        pass  # Never block a real LLM call due to file I/O errors
 
 
 class LlmError(RuntimeError):
@@ -88,6 +100,7 @@ class LlmClient:
 
         try:
             async with httpx.AsyncClient(timeout=self._settings.ai_timeout_seconds) as client:
+                _dump_prompt(body)
                 resp = await client.post(url, headers=self._headers, json=body)
         except httpx.HTTPError as exc:
             raise LlmError(f"Chat completion request failed at {url}: {exc}") from exc
