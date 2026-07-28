@@ -1,564 +1,840 @@
-# LifeTrack — Phase 3 Backend Walkthrough and Team Split
+# LifeTrack Backend Presentation Plan
 
-**Purpose:** present the current Spring Boot backend end-to-end and divide it
-between three presenters using complete vertical slices. Each presenter should
-be able to trace:
+## Purpose
+
+Present the current LifeTrack backend as a set of complete, defensible vertical slices:
 
 ```text
-React action → HTTP request → Spring Security → controller → DTO → service
-→ repository/JPA → MySQL → response DTO → HTTP response → React state → UI
+React action
+    -> HTTP request
+    -> Spring Security
+    -> controller
+    -> request DTO
+    -> service business rules
+    -> repository/JPA
+    -> MySQL
+    -> response DTO
+    -> React rendering
 ```
 
-CSS, component markup, chart geometry, colors and React's internal rendering
-algorithm are presentation details. They are not part of the API pipeline.
-
-> This document reflects the current Phase 3 scope: Spring Boot and MySQL are
-> the stable application backend. Python AI, RAG, embeddings and LM Studio are
-> deliberately parked for Phase 4. Spring AI is not used or planned.
-
----
-
-## 1. Current status and scope decisions
-
-### Backend-separation plan
-
-| # | Work item | Current status | Phase 3 decision |
-| --- | --- | --- | --- |
-| 1 | `/api/reference` plus server-side category/mood validation | Complete: backend and frontend wired | Present |
-| 2 | `/api/daily-logs/today` and targeted daily-log queries | Complete: backend and frontend wired | Present |
-| 3 | `UserSettings` plus `/api/settings` | Complete: backend and frontend wired | Present |
-| 4 | `/api/ai-context` | Complete: backend and frontend call sites wired | Present as the Phase 4 seam, not as AI inference |
-| 5 | Dedicated `/api/dashboard/summary` | Not implemented | Intentionally skipped; current APIs are sufficient |
-| 6 | Pagination for expenses/journals | Not implemented | Deferred scalability work |
-| 7 | `stepsActual` and new analytics endpoints | Not implemented | Deferred; do not invent data |
-| 7a | Remove seeded/random/hardcoded application metrics | In cleanup | Required before the demo |
-
-Steps 1–4 achieve the original architectural goal: React is primarily a
-presentation client, while Spring owns persisted facts, validation, settings,
-domain vocabulary and trusted aggregation.
-
-### “Real data only” rule
-
-Every value presented as user, health, analytics or admin data must come from:
-
-1. a real Spring Boot endpoint; and
-2. persisted MySQL records, or a backend calculation derived from those
-   records.
-
-Allowed in the frontend:
-
-- colors, labels and icons;
-- date/number formatting;
-- CSS and responsive layout;
-- mapping response data into components;
-- SVG coordinates and percentages used only to draw a chart.
-
-Not allowed:
-
-- seeded or random metrics;
-- hardcoded values that pretend to be user/admin/health data;
-- fallback arrays that look like real analytics;
-- constructing trusted business context in the browser.
-
-If real data does not exist, remove the visualization or display a clear
-loading, error or “No data available yet” state.
-
-### Work intentionally excluded
-
-- No dedicated dashboard-summary endpoint for this phase.
-- No pagination/date-filter expansion beyond the daily-log filters already
-  implemented.
-- No component-library or reusable “mini-Bootstrap” extraction is required.
-- No Python/FastAPI, RAG, embeddings, LM Studio or Spring AI work in Phase 3.
-- No new endpoint solely to preserve a fake visualization.
-
----
-
-## 2. System at a glance
-
-### Phase 3 system being presented
+For the optional AI path, extend the trace:
 
 ```text
-Browser: React (:5173)
-      │  fetch + JSON + Authorization: Bearer <JWT>
-      ▼
+authenticated Spring AI context
+    -> React contract mapping
+    -> FastAPI request validation
+    -> prompt construction
+    -> OpenAI-compatible provider
+    -> structured response validation
+    -> AI or deterministic fallback
+    -> React rendering
+```
+
+The presentation should focus on ownership, trust boundaries, persistence, validation, and observable behavior. CSS, visual styling, and React's rendering algorithm are outside the backend pipeline.
+
+---
+
+## 1. Current project position
+
+LifeTrack currently implements four layers:
+
+1. **Collect:** Daily Logs, user-defined habits, expenses, journals, meals, moods, and settings.
+2. **Connect:** Date-range analytics and backend aggregation.
+3. **Explain:** Deterministic Spring insights plus optional validated AI-generated insights.
+4. **Advise:** The AI service can produce grounded recommendations, but the current context is aggregate-based and does not yet support genuine date-paired correlations.
+
+### Stable application responsibilities
+
+Spring Boot owns:
+
+- registration and login;
+- JWT authentication and role authorization;
+- user ownership;
+- API contracts and validation;
+- CRUD and merge behavior;
+- domain vocabulary;
+- per-user settings and insight thresholds;
+- date-range queries;
+- analytics and deterministic rules;
+- trusted AI context construction.
+
+MySQL owns durable application state.
+
+React owns:
+
+- collecting input;
+- requesting APIs;
+- local form state;
+- formatting values;
+- chart rendering;
+- loading, error, and empty states.
+
+The Python AI service owns:
+
+- Pydantic request validation;
+- prompt construction;
+- provider configuration;
+- structured-output negotiation;
+- model-response validation;
+- deterministic fallback when AI is unavailable.
+
+### Important architecture statement
+
+React does not own trusted business calculations or persistence. FastAPI does not query the LifeTrack database or decide which user to read. Spring remains the source of authenticated facts.
+
+---
+
+## 2. System architecture
+
+### Normal application path
+
+```text
+React (:5173)
+    |
+    | JSON + Authorization: Bearer <JWT>
+    v
 Spring Boot (:8080)
-      │  SecurityFilterChain → JwtAuthenticationFilter
-      │  Controller → DTO → Service → Repository/JPA
-      ▼
+    |
+    | SecurityFilterChain
+    | JwtAuthenticationFilter
+    | Controller -> DTO -> Service -> Repository
+    v
+Hibernate / Spring Data JPA
+    |
+    v
 MySQL (:3306)
 schema: lifestyle_ai
-      │
-      └── saved entity/aggregate → response DTO → JSON → React state → UI
 ```
 
-React never accesses MySQL directly. React and Spring do not call each other
-like local functions; the boundary is an HTTP contract such as:
+### Optional AI Insights path
 
 ```text
-POST http://localhost:8080/api/expenses
+Dashboard ✨ AI
+    |
+    | JWT
+    v
+GET Spring /api/ai-context
+    |
+    | owner-scoped MySQL queries
+    | per-user preferences and thresholds
+    v
+trusted aggregate context
+    |
+    | snake_case JSON mapping
+    v
+POST FastAPI (:8100) /insights
+    |
+    | Pydantic validation
+    | prompt construction
+    | structured provider request
+    v
+OpenAI-compatible provider
+    |
+    | validated JSON or failure
+    v
+FastAPI AI result or rule fallback
+    |
+    v
+Dashboard Insights card
 ```
 
-### Phase 4 seam — implemented now, consumed later
-
-```text
-React or future application flow
-      │ authenticated request
-      ▼
-Spring GET /api/ai-context?days=7
-      │ owner-scoped MySQL queries + trusted aggregation
-      ▼
-Future Python service
-      │ RAG / embeddings / LLM reasoning
-      ▼
-Generated AI result
-```
-
-`/api/ai-context` is an ordinary Spring endpoint. It performs no AI inference
-and does not mean the project uses Spring AI. It prevents a future Python
-service from owning CRUD rules or accepting an arbitrary browser-supplied user
-identity.
-
-### Backend technology
-
-| Concern | Current choice |
-| --- | --- |
-| Language/runtime | Java 17 |
-| Framework | Spring Boot 3.3.4 |
-| HTTP | Spring Web and `@RestController` |
-| Security | Spring Security, stateless JWT, BCrypt |
-| Persistence | Spring Data JPA / Hibernate 6.5 |
-| Database | MySQL, schema `lifestyle_ai` |
-| Validation | Jakarta Bean Validation and `@Valid` |
-| API documentation | springdoc-openapi 2.6.0 and Swagger UI |
-| Monitoring | Spring Boot Actuator, metrics and Prometheus endpoint |
-| AI for Phase 3 | None; Python work is parked |
+Spring Boot does not use Spring AI. The Python service communicates through an OpenAI-compatible HTTP API and can be configured for LM Studio, OpenAI, Mistral, or Gemini.
 
 ---
 
-## 3. Current endpoint inventory — 28 operations, 11 controllers
+## 3. Technology inventory
+
+| Concern | Current implementation |
+| --- | --- |
+| Java runtime | Java 17 |
+| Application framework | Spring Boot 3.3.4 |
+| HTTP | Spring Web MVC |
+| Authentication | Stateless JWT |
+| Password hashing | BCrypt |
+| Authorization | Spring Security roles and owner-scoped queries |
+| Validation | Jakarta Bean Validation plus service rules |
+| Persistence | Spring Data JPA / Hibernate |
+| Database | MySQL |
+| API documentation | springdoc-openapi and Swagger UI |
+| AI microservice | Python FastAPI |
+| AI validation | Pydantic |
+| Provider protocol | OpenAI-compatible chat completions |
+| Monitoring | Actuator, Prometheus, and optional Grafana |
+
+Useful local documentation:
+
+```text
+Spring Swagger: http://localhost:8080/swagger-ui/index.html
+Spring OpenAPI: http://localhost:8080/v3/api-docs
+FastAPI docs:  http://localhost:8100/docs
+```
+
+---
+
+## 4. Current Spring endpoint inventory
+
+The current Spring backend exposes **34 operations across 12 controllers**.
 
 | Controller | Operations | Count | Access |
 | --- | --- | ---: | --- |
-| `AuthController` | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | 3 | first two public; `/me` requires JWT |
-| `ExpenseController` | list, get by ID, create, update, delete on `/api/expenses` | 5 | JWT, owner-scoped |
-| `JournalController` | list, get by ID, create, update, delete on `/api/journal` | 5 | JWT, owner-scoped |
-| `DailyLogController` | list/query, get by ID, create/upsert, update, delete, `GET /today` | 6 | JWT, owner-scoped |
-| `UserSettingsController` | `GET /api/settings`, `PUT /api/settings` | 2 | JWT, owner-scoped |
-| `ReferenceController` | `GET /api/reference` | 1 | JWT |
-| `AnalyticsController` | `GET /api/analytics` | 1 | JWT, owner-scoped aggregation |
-| `InsightController` | `GET /api/insights` | 1 | JWT, owner-scoped rules |
-| `AiContextController` | `GET /api/ai-context?days=` | 1 | JWT, owner-scoped aggregation |
-| `AdminController` | `GET /api/admin/stats`, `GET /api/admin/users` | 2 | JWT plus `ROLE_ADMIN` |
-| `HealthController` | `GET /api/health` | 1 | public |
-|  | **Total** | **28** |  |
+| `AuthController` | register, login, current user | 3 | register/login public; `/me` authenticated |
+| `ExpenseController` | range list, get, create, update, delete | 5 | JWT and owner-scoped |
+| `JournalController` | list, get, create, update, delete | 5 | JWT and owner-scoped |
+| `DailyLogController` | list/query, today, get, create, merge, update, delete | 7 | JWT and owner-scoped |
+| `HabitController` | dated list, create, rename/reactivate, deactivate, toggle completion | 5 | JWT and owner-scoped |
+| `UserSettingsController` | get and update | 2 | JWT and owner-scoped |
+| `ReferenceController` | server vocabulary | 1 | JWT |
+| `AnalyticsController` | date-range analytics | 1 | JWT and owner-scoped |
+| `InsightController` | deterministic insights | 1 | JWT and owner-scoped |
+| `AiContextController` | trusted AI context | 1 | JWT and owner-scoped |
+| `AdminController` | statistics and users | 2 | `ROLE_ADMIN` |
+| `HealthController` | application health | 1 | public |
+|  | **Total** | **34** |  |
 
-`GET /api/daily-logs` supports three read modes without creating extra Swagger
-operations:
+### Important query modes
 
-- no parameters: all logs for the current user;
-- `?date=YYYY-MM-DD`: zero or one record returned as a list;
-- `?from=YYYY-MM-DD&to=YYYY-MM-DD`: an owner-scoped date range.
+`GET /api/expenses`:
 
-`GET /api/daily-logs/today` returns `200` with today's record or `204 No
-Content` when no record exists.
+```text
+no dates       -> all current-user expenses, newest first
+from and to    -> inclusive owner-scoped range
+only from      -> from that date through today
+only to        -> first of that month through the supplied date
+```
+
+`GET /api/daily-logs`:
+
+```text
+no parameters  -> all current-user logs
+date           -> zero or one record returned as a list
+from and to    -> inclusive owner-scoped range
+```
+
+`GET /api/daily-logs/today`:
+
+```text
+200 -> today's record exists
+204 -> nothing has been logged today
+```
+
+`GET /api/habits?date=YYYY-MM-DD`:
+
+```text
+current date   -> current active habits and completion states
+historical date -> habits active on that date, including later-deactivated habits
+```
 
 ---
 
-## 4. The request pipeline everyone must be able to draw
+## 5. FastAPI endpoint inventory
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | provider and model configuration health |
+| `GET` | `/models` | models exposed by the configured provider |
+| `POST` | `/insights` | validated AI insights with deterministic fallback |
+| `POST` | `/chat` | grounded journal assistant response |
+| `POST` | `/vectors/upsert` | embed and index local records |
+| `POST` | `/vectors/search` | retrieve relevant indexed records |
+| `DELETE` | `/vectors/{user_key}` | remove one local vector store |
+
+The Dashboard currently uses `/insights`. The Journal assistant uses `/chat`. Vector endpoints exist as a local prototype but are not part of the normal browser workflow.
+
+---
+
+## 6. Request pipeline everyone must understand
 
 ```text
 HTTP request
-   │
-   ├─ SecurityFilterChain
-   │    └─ JwtAuthenticationFilter
-   │         validates signature/expiry, loads user, sets SecurityContext
-   │
-   ├─ @RestController
-   │    ├─ maps HTTP method + URL
-   │    └─ @Valid Request DTO
-   │
-   ├─ Service
-   │    ├─ receives SecurityUtils.currentUserId()
-   │    ├─ enforces business/domain rules
-   │    └─ orchestrates repositories
-   │
-   ├─ Spring Data repository
-   │    └─ Hibernate derives/generates SQL
-   │
-   ├─ Entity ↔ MySQL table
-   │
-   ▼
-saved Entity or aggregate
-   → Response DTO
-   → Spring/Jackson serializes JSON
-   → HTTP status + body
-   → api.js parses JSON
-   → React updates state
-   → UI re-renders
-
-Exception
-   → GlobalExceptionHandler or Spring Security
-   → consistent 400/401/403/404/409 response
+    |
+    +-- CORS handling
+    |
+    +-- SecurityFilterChain
+    |      |
+    |      +-- JwtAuthenticationFilter
+    |             validates token
+    |             loads UserPrincipal
+    |             establishes SecurityContext
+    |
+    +-- @RestController
+    |      maps method and URL
+    |      deserializes JSON
+    |      invokes @Valid
+    |
+    +-- Service
+    |      receives current authenticated user ID
+    |      applies use-case and domain rules
+    |      orchestrates repositories
+    |
+    +-- Spring Data repository
+    |      derives or executes owner-scoped query
+    |
+    +-- Hibernate
+    |      generates SQL
+    |
+    +-- MySQL
+    |
+    +-- saved entity or aggregate
+    |
+    +-- response DTO
+    |
+    +-- Jackson JSON response
 ```
 
-One-line responsibility of each layer:
-
-- **React page:** collects input, calls the API and renders the returned state.
-- **Frontend `api.js`:** owns HTTP mechanics, JWT header, JSON parsing and
-  frontend API errors.
-- **Controller:** maps HTTP to Java calls and selects the response status.
-- **Request DTO:** defines and validates the incoming API contract.
-- **Service:** owns domain validation and use-case orchestration.
-- **Repository:** exposes persistence operations; Spring Data implements them.
-- **Entity:** maps Java fields to database tables/columns.
-- **Response DTO:** defines exactly what is returned; entities are not exposed.
-
-### Example: Create Expense
+Exceptions follow separate infrastructure:
 
 ```text
-ExpensesPage.handleSubmit()
-→ expenseApi.create(payload)
-→ POST /api/expenses with JWT and JSON
-→ JwtAuthenticationFilter
-→ ExpenseController.create(@Valid ExpenseRequest)
-→ ExpenseService.create(currentUserId, request)
-→ validate category against ReferenceProperties
-→ ExpenseRepository.save(Expense)
-→ Hibernate INSERT into expenses
-→ MySQL generates ID
-→ ExpenseResponse
-→ HTTP 201 Created + JSON
-→ api.js
-→ setTxns(...)
-→ expense appears in the UI
+validation/domain/persistence exception
+    -> GlobalExceptionHandler
+    -> structured 400/404/409 response
+
+authentication/authorization failure
+    -> Spring Security
+    -> 401 or 403
 ```
 
-The CSS classes used by the expense card/table are deliberately outside this
-pipeline.
+### Responsibility of each layer
+
+- **Controller:** HTTP mapping and response status.
+- **Request DTO:** transport contract and structural validation.
+- **Service:** business behavior and orchestration.
+- **Repository:** persistence access.
+- **Entity:** database mapping.
+- **Response DTO:** safe external representation.
+- **Security context:** trusted current-user identity.
+- **React:** API consumption and presentation.
 
 ---
 
-## 5. Nine request paths to understand
+## 7. Core vertical slice: Create Expense
 
-Every current endpoint is a variation of these paths.
+```text
+Swagger or ExpensesPage
+    -> POST /api/expenses
+    -> JWT filter
+    -> ExpenseController.create(@Valid ExpenseRequest)
+    -> SecurityUtils.currentUserId()
+    -> ExpenseService.create(userId, request)
+    -> validate category against ReferenceProperties
+    -> default missing date to LocalDate.now()
+    -> ExpenseRepository.save()
+    -> Hibernate INSERT
+    -> MySQL-generated ID
+    -> ExpenseResponse
+    -> 201 Created
+```
 
-| # | Pipeline | Entry points | Distinguishing behavior |
-| --- | --- | --- | --- |
-| **P1** | Authentication/token issue | register, login | Public input; BCrypt and JWT creation; no incoming JWT |
-| **P2** | JWT authentication | every protected endpoint | Filter validates token and establishes the current user before the controller |
-| **P3** | Owner-scoped CRUD write | POST/PUT/DELETE for expenses, journal, daily logs | DTO validation, service rules, JPA write; daily-log POST includes upsert-by-date |
-| **P4** | Owner-scoped CRUD read | list and get-by-ID endpoints | Queries always include the authenticated user ID |
-| **P5** | Targeted daily-log read | `/daily-logs/today`, `?date=`, `?from=&to=` | Database performs the targeted lookup instead of React fetching everything |
-| **P6** | Domain reference/config | `/reference` | Backend supplies categories, habits and moods; write services enforce matching values |
-| **P7** | Per-user settings | GET/PUT `/settings` | Defaults are persisted on first read; later updates use the same user row |
-| **P8** | Derived data | `/analytics`, `/insights`, `/ai-context` | Owner-scoped rows become aggregate DTOs or deterministic rules, not entities |
-| **P9** | Role-gated administration | `/admin/stats`, `/admin/users` | System-wide data and `ROLE_ADMIN` authorization |
+Why this is a strong interview feature:
 
-P2 is cross-cutting: a request such as `POST /api/expenses` passes through both
-P2 and P3.
+- public contract differs from the entity;
+- user ID comes from JWT, not JSON;
+- DTO and service validation are visibly different;
+- persistence returns a generated identifier;
+- date-filtered GET proves durable storage;
+- Analytics consumes the same record;
+- owner-scoped update/delete demonstrate isolation.
+
+Use the dedicated walkthrough:
+
+[Tracing Create Expense API](../API%20Create%20Expense/Tracing%20Create%20Expense%20API.md)
 
 ---
 
-## 6. The four completed backend seams
+## 8. Daily Log and user-managed Habit model
 
-### A. `/api/reference`
+### Daily Log behavior
 
-Spring is now the source of truth for:
+`DailyLog` represents one consolidated record per user/date. The unique `(userId, date)` constraint enforces this invariant.
 
-- expense categories;
-- transactional and embedded habit catalogs;
-- journal moods;
-- daily-log moods.
+The current write paths are:
 
-`ExpenseService`, `JournalService` and `DailyLogService` reject unknown values
-with `400 Bad Request`. React uses the returned lists to render controls, while
-colors and icons remain frontend presentation choices.
+```text
+POST /api/daily-logs
+    create/upsert the full date record
 
-### B. `/api/daily-logs/today` and date queries
+POST /api/daily-logs/merge
+    overwrite only supplied scalar values
+    merge meals by case-insensitive meal name
+    append food items
+    preserve fields omitted from the request
 
-The frontend no longer downloads all logs and filters them to find today's
-record. The database lookup is owner-scoped, and the HTTP response distinguishes
-“found” (`200`) from “not created yet” (`204`).
+PUT /api/daily-logs/{id}
+    replace/edit a selected historical record
+```
 
-### C. `/api/settings`
+The merge endpoint allows several partial check-ins throughout one day while retaining one database record.
+
+### Meals
+
+Meals are stored as JSON in the `daily_logs` table through `MealListConverter`. This preserves a nested meal/item structure without an unsupported nested `@ElementCollection`.
+
+Users can create arbitrary meal names such as:
+
+```text
+Breakfast
+Lunch
+High Tea
+Dinner
+Late Night Snack
+```
+
+### User-managed habits
+
+Habit definitions and daily observations are separated:
+
+```text
+UserHabit
+    id, userId, name, active
+    activatedAt, deactivatedAt
+
+DailyHabitCompletion
+    userId, habitId, date, completed
+```
+
+This allows:
+
+- user-defined habit names;
+- up to five active habits;
+- soft deactivation;
+- preservation of historical completions;
+- editing historical completion states without reactivating a habit.
+
+New users begin with zero habits. The system does not recreate fixed defaults.
+
+### Legacy habit fields
+
+`DailyLog.transactionalHabits` and `DailyLog.embeddedHabits` remain for backward compatibility and historical migration. They are not the preferred model for new user-managed habits.
+
+Do not claim that the legacy collections and the new habit tables are fully consolidated yet.
+
+---
+
+## 9. Per-user Settings and insight preferences
 
 `UserSettingsService.getOrCreate(userId)` persists one settings row per user.
-The current fields are:
 
-- monthly budget;
-- sleep target hours;
-- step target;
-- water target in millilitres.
+Current settings include:
 
-These values are not frontend constants. `PUT /api/settings` validates positive
-targets and persists changes.
+```text
+monthlyBudget
+sleepTargetHours
+stepTarget
+waterTargetMl
+insightPeriodDays
+minPairedDays
+lowSleepThreshold
+habitConsistencyTarget
+```
 
-### D. `/api/ai-context`
+Spring validates cross-field rules:
 
-The endpoint accepts an optional `days` window and aggregates owner-scoped:
+```text
+minPairedDays <= insightPeriodDays
+lowSleepThreshold < sleepTargetHours
+```
 
-- average sleep;
-- spending and category totals;
-- average water intake;
-- habit consistency;
+These settings drive both deterministic insights and the AI context. React loads and submits them through `GET/PUT /api/settings`; it does not persist them in localStorage or decide the thresholds.
+
+Spending threshold for an analysis period is derived as:
+
+```text
+monthlyBudget × periodDays ÷ 30
+```
+
+The existing `sleepTargetHours` and `waterTargetMl` are reused as insight targets, avoiding duplicate settings.
+
+---
+
+## 10. Date-range Analytics
+
+`GET /api/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD` returns:
+
+- sleep points for the selected range;
+- a separate trailing seven-day sleep series for the Dashboard;
+- daily expense totals sorted by date;
+- expense totals grouped by category;
+- total period spending;
+- monthly budget and budget-usage percentage;
 - mood counts;
-- a bounded number of recent journal excerpts;
-- the configured rule thresholds.
+- journal-entry count.
 
-The current user's ID comes from Spring Security, never from a browser-provided
-`user_key`. This is the stable Phase 4 boundary: Spring supplies trusted facts;
-future Python is free to perform RAG or other AI reasoning.
+Spring performs trusted aggregation. React selects dates, sends the range, and plots the returned points.
 
----
+If dates are omitted:
 
-## 7. Persistence model worth explaining
+```text
+to   -> backend current date
+from -> first day of the current month
+```
 
-Hibernate currently manages these application tables:
+An inverted range returns `400 Bad Request`.
 
-- `users`
-- `user_settings`
-- `expenses`
-- `journal_entries`
-- `daily_logs`
-- `daily_log_transactional_habits`
-- `daily_log_embedded_habits`
+### Current scaling position
 
-`DailyLog` demonstrates three useful persistence patterns:
-
-1. `(userId, date)` has a unique constraint, enabling one log per user per day.
-2. Habit lists use `@ElementCollection` collection tables.
-3. Meals use `MealListConverter` to persist the nested list as JSON in a
-   `TEXT` column because nested element collections are not supported directly.
-
-`repository.save(entity)` is where JPA/Hibernate issues the SQL write. For
-identity-generated IDs, MySQL generates the ID and Hibernate returns it on the
-saved entity.
+Java Stream aggregation is acceptable for the current project volume. A production-scale system should move heavier grouping, pagination, and large-range aggregation into optimized SQL queries or dedicated projections.
 
 ---
 
-## 8. Team split — three vertical slices
+## 11. Deterministic and AI Insights
 
-The endpoint counts are intentionally unequal; complexity and presentation time
-are more important than raw counts. Everyone must understand Sections 2–5.
+### Spring deterministic path
 
-### Person A — Identity, configuration and privileged access
+```text
+GET /api/insights
+    -> authenticated user
+    -> persisted UserSettings
+    -> owner-scoped logs/expenses/journals
+    -> deterministic sleep/spending/hydration/habit/mood rules
+    -> InsightsResponse
+```
 
-**Endpoints (9):**
+This path does not depend on Python or an LLM.
 
-- auth register/login/me;
-- settings GET/PUT;
-- reference GET;
-- admin stats/users;
-- health GET.
+### Optional AI path
 
-**Primary files:**
+```text
+Dashboard ✨ AI
+    -> GET /api/ai-context
+    -> POST FastAPI /insights
+    -> constrained provider call
+    -> validated AI response or rule fallback
+```
 
-`AuthController`, `AuthService`, `SecurityConfig`, `JwtService`,
-`JwtAuthenticationFilter`, `CustomUserDetailsService`, `UserPrincipal`,
-`SecurityUtils`, `UserSettingsController`, `UserSettingsService`,
-`ReferenceController`, `ReferenceProperties`, `AdminController`,
-`HealthController`, related DTOs/entities/repositories.
+`AiContextService` currently supplies:
 
-**Story:**
+- analysis period;
+- average sleep and personal thresholds;
+- period spending and proportional threshold;
+- expenses grouped by category;
+- average water and personal target;
+- habit consistency and personal target;
+- mood counts;
+- bounded journal excerpts.
 
-1. Registration checks email uniqueness, hashes the password with BCrypt,
-   persists the user and returns a signed JWT plus `UserDto`.
-2. Login delegates credential checking to Spring Security and returns a new
-   token.
-3. A protected request is authenticated by the JWT filter before its
-   controller executes.
-4. `/settings` proves authenticated per-user configuration persistence.
-5. `/reference` demonstrates config-owned domain vocabulary.
-6. `/admin/**` demonstrates role authorization; health demonstrates a public
-   operational endpoint.
+The Dashboard currently omits `journalExcerpts` when mapping the Insights request. The Spring contract supports them, but they do not reach Dashboard AI Insights yet.
 
-**Must answer:**
+The Java DTO property is still named `weeklySpend`, although its current semantic value is spending over the selected period.
 
-- Why JWT is signed rather than encrypted.
-- Why passwords use BCrypt.
-- Why `userId` comes from the security context.
-- Why CORS is required between ports 5173 and 8080.
-- Difference between authentication (`401`) and authorization (`403`).
-- How first-read settings defaults become a real MySQL row.
+### AI request safety
 
-### Person B — Domain CRUD and persistence
+FastAPI:
 
-**Endpoints (16):**
+- validates input with Pydantic;
+- constructs fixed system and grounded user messages;
+- requests structured JSON;
+- negotiates `json_schema`, `json_object`, then prompt-only JSON;
+- parses the response;
+- validates it again with Pydantic;
+- returns deterministic rules if the provider fails or returns unusable output.
 
-- five expense operations;
-- five journal operations;
-- six daily-log operations, including `/today`.
+The development-only `ai-service/prompt.md` snapshot records the outbound provider body and is ignored by Git because it can contain personal lifestyle data.
 
-**Primary files:**
+Use the dedicated walkthrough:
 
-the three domain controllers/services/repositories, `DailyLog`, `Meal`,
-`MealListConverter`, `Expense`, `JournalEntry`, domain DTOs,
-`GlobalExceptionHandler`, `ReferenceProperties` and `application.yml`.
-
-**Story:**
-
-1. Trace Create Expense fully from React through `POST /api/expenses`, category
-   validation, JPA/MySQL and `201 Created` back to React.
-2. Demonstrate that user identity comes from JWT rather than request JSON.
-3. Trace daily-log POST as an upsert protected by `(userId, date)`.
-4. Demonstrate `/daily-logs/today` or `?date=` as a targeted database query.
-5. Explain owner-scoped repository methods such as `findByIdAndUserId`.
-6. Explain habit collection tables and the meals JSON converter.
-
-**Must answer:**
-
-- How Spring Data derives queries from repository method names.
-- Why DTOs are preferred over returning entities.
-- How one user is prevented from reading another user's rows.
-- How `@Valid` differs from service-level category/mood validation.
-- How unique-constraint failures become `409 Conflict`.
-- Why `ddl-auto: update` is convenient for development but unsuitable for
-  production migrations.
-
-### Person C — Derived data and the future AI boundary
-
-**Endpoints (3):**
-
-- `GET /api/analytics`;
-- `GET /api/insights`;
-- `GET /api/ai-context?days=`.
-
-**Primary files:**
-
-`AnalyticsController`, `AnalyticsService`, `AnalyticsDtos`,
-`InsightController`, `InsightService`, `InsightProperties`, `InsightDtos`,
-`AiContextController`, `AiContextService`, `AiContextDtos` and the three domain
-repositories.
-
-**Story:**
-
-1. `/analytics` reads owner-scoped rows and produces weekly sleep, expense
-   totals by category, total expenses, mood counts and journal count.
-2. `/insights` runs deterministic rules using thresholds externalized through
-   `InsightProperties`.
-3. `/ai-context?days=7` proves the date window changes the aggregated result
-   and demonstrates the contract future Python can consume.
-4. Clearly state that no Python or LLM is required for any Phase 3 endpoint.
-
-**Must answer:**
-
-- Why aggregation belongs behind an endpoint instead of inside a chart
-  component.
-- Why Java-stream aggregation is acceptable now and SQL `GROUP BY` may scale
-  better later.
-- Why deterministic insights are useful without an LLM.
-- Why `/api/ai-context` is not Spring AI.
-- Why Python should consume trusted context rather than own CRUD or accept an
-  arbitrary `user_key`.
+[Tracing AI Insights API](../API%20AI%20Insights/Tracing%20AI%20Insights%20API.md)
 
 ---
 
-## 9. Suggested 15-minute demonstration
+## 12. Persistence model
 
-1. **Identity:** call `GET /api/health`, register/login, copy the JWT into
-   Swagger's Authorize dialog, then call `/api/auth/me`.
-2. **Reference validation:** call `/api/reference`; submit an invalid expense
-   category and show `400`; submit a valid expense and show `201`.
-3. **Database round trip:** call `GET /api/expenses`, then show the inserted row
-   in MySQL. Explain JPA-generated SQL and the response DTO.
-4. **Daily-log targeting:** call `/api/daily-logs/today` before and after
-   creating today's log. Optionally post the same date twice to demonstrate
-   upsert and the unique constraint.
-5. **Settings:** call `GET /api/settings` to create defaults, `PUT` new values,
-   then `GET` again to prove persistence.
-6. **Derived data:** call `/api/analytics` and `/api/insights`; connect their
-   values to the records created earlier.
-7. **Future seam:** call `/api/ai-context?days=7`, then a different window.
-   Explain that Spring produces trusted context and Python is intentionally
-   postponed.
-8. **Authorization:** call `/api/admin/stats` as a normal user and show `403`,
-   or demonstrate it with an admin token if available.
+Primary tables and collection tables include:
 
-Closing line:
+```text
+users
+user_settings
+expenses
+journal_entries
+daily_logs
+user_habits
+daily_habit_completions
+daily_log_transactional_habits   legacy
+daily_log_embedded_habits        legacy
+```
 
-> React collects and renders; Spring authenticates, validates, applies domain
-> rules and owns the data; JPA persists it in MySQL; Python remains an optional
-> Phase 4 consumer of trusted Spring context.
+Notable persistence choices:
 
----
+1. Identity primary keys are generated by MySQL.
+2. Owner-scoped repository methods include the authenticated user ID.
+3. Daily Logs have a unique user/date key.
+4. Meals are converted to JSON in a `TEXT` column.
+5. Habit definitions are separate from dated completion states.
+6. Habit deactivation is soft so history survives.
+7. Settings have one unique row per user.
 
-## 10. Definition of done before the presentation
-
-### Complete
-
-- [x] Reference endpoint is wired into React.
-- [x] Expense and mood values are validated server-side.
-- [x] Daily-log today/date lookup is implemented and wired.
-- [x] Settings defaults persist and updates survive a second GET.
-- [x] AI context uses the authenticated user and respects the `days` window.
-- [x] CRUD requests have been exercised against real MySQL.
-- [x] Swagger exposes the current 28 operations.
-
-### Required final cleanup
-
-- [ ] Remove/replace seeded random charts in `AnalyticsPage`.
-- [ ] Remove/replace `HABIT_SEGMENTS` if it is not API-backed.
-- [ ] Remove/replace hardcoded dashboard Stress/Hydration/Heart Rate metrics.
-- [ ] Remove/replace Admin `FUNNEL`, fallback `STAT_CARDS` and seeded charts
-      unless their values come from `/api/admin/stats`.
-- [ ] Use honest loading/error/empty states where no backend data exists.
-- [ ] Search the frontend once more for fake application metrics.
-- [ ] Run frontend lint and production build after the cleanup.
-- [ ] Smoke-test the Swagger demo sequence against MySQL.
-
-### Explicitly deferred
-
-- [ ] Pagination for unbounded expense/journal lists.
-- [ ] SQL-side aggregation.
-- [ ] Flyway/Liquibase migrations.
-- [ ] Refresh tokens and revocation.
-- [ ] New dashboard-summary or steps-actual endpoints.
-- [ ] Python service authentication and Phase 4 AI/RAG work.
+`ddl-auto: update` is convenient for the current local project but is not a safe production migration strategy. Use Flyway or Liquibase before production.
 
 ---
 
-## 11. Likely questions and concise answers
+## 13. Three-person presentation split
 
-| Question | Answer |
-| --- | --- |
-| How do React and Spring communicate? | The browser sends JSON over HTTP using `fetch`; Spring maps the method/path and returns status plus JSON. |
-| Does React access MySQL? | No. Only Spring repositories/JPA access MySQL. |
-| Where is the SQL? | Hibernate generates writes and Spring Data derives most queries from repository method names. |
-| Where does business logic live? | Spring services and configuration properties; React keeps interaction and presentation transformations. |
-| Why can React still calculate chart coordinates? | That changes how facts are drawn, not what the business facts are. |
-| How is user isolation enforced? | JWT establishes the current user; repository queries include that user ID. |
-| Why both DTO validation and service validation? | DTO constraints validate shape/range; services validate domain membership and use-case rules. |
-| Is `/api/ai-context` an AI endpoint? | It is a trusted aggregation endpoint for a future AI consumer; it performs no model inference. |
-| Why not Spring AI? | Phase 4 AI will use a separate Python service; Spring remains the stable CRUD/domain backend. |
-| What happens when data is absent? | The API returns an empty/204 result as designed and React renders an honest empty state, never invented metrics. |
-| Why no pagination yet? | It is acknowledged scalability work, intentionally deferred from the Phase 3 architecture goal. |
-| Why Java aggregation rather than SQL? | Simpler and sufficient for the current data size; SQL aggregation is a known scaling improvement. |
-| Why JWT instead of sessions? | Stateless requests are simple to scale and do not require a server-side session store. |
-| Is JWT encrypted? | No. It is signed; the payload is readable but cannot be altered without invalidating the signature. |
+All presenters should understand Sections 2, 4, and 6. Each person then owns one vertical slice.
+
+### Person A: Identity, security, configuration, and administration
+
+Primary endpoints:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET/PUT /api/settings`
+- `GET /api/reference`
+- `GET /api/admin/stats`
+- `GET /api/admin/users`
+- `GET /api/health`
+
+Primary files:
+
+```text
+SecurityConfig
+JwtAuthenticationFilter
+JwtService
+UserPrincipal
+CustomUserDetailsService
+SecurityUtils
+AuthController / AuthService
+UserSettingsController / UserSettingsService
+ReferenceController / ReferenceProperties
+AdminController
+HealthController
+```
+
+Presentation story:
+
+1. Register a user and explain BCrypt.
+2. Login and receive a signed JWT.
+3. Authorize Swagger.
+4. Call `/auth/me` to prove principal reconstruction.
+5. Read/update settings and prove persistence.
+6. Show domain vocabulary from `/reference`.
+7. Compare normal-user `403` against admin access.
+
+Must answer:
+
+- JWT signing versus encryption.
+- Authentication (`401`) versus authorization (`403`).
+- Why user ID comes from the security context.
+- Why owner-scoped queries are still necessary after authentication.
+- Why CORS and CSRF have different roles in this stateless API.
+- Why Swagger and Actuator exposure should be restricted in production.
+
+### Person B: CRUD, Daily Log merge, and persistence
+
+Primary endpoints:
+
+- all Expense operations;
+- all Journal operations;
+- all Daily Log operations;
+- all Habit operations.
+
+Primary files:
+
+```text
+ExpenseController / ExpenseService / ExpenseRepository
+JournalController / JournalService / JournalEntryRepository
+DailyLogController / DailyLogService / DailyLogRepository
+HabitController / HabitService
+UserHabitRepository / DailyHabitCompletionRepository
+Expense / JournalEntry / DailyLog
+UserHabit / DailyHabitCompletion
+MealListConverter
+GlobalExceptionHandler
+```
+
+Presentation story:
+
+1. Trace Create Expense end-to-end in Swagger.
+2. Show DTO validation versus category business validation.
+3. Read the record back and connect it to Analytics.
+4. Demonstrate Daily Log partial merge.
+5. Create, toggle, deactivate, and historically retrieve a user habit.
+6. Explain meals JSON and soft habit deactivation.
+
+Must answer:
+
+- Why entities are not exposed directly.
+- How Spring Data derives repository queries.
+- How owner-scoped lookup prevents data leaks.
+- Difference between POST create, POST merge, and PUT update.
+- Why history needs activation/deactivation timestamps.
+- Why legacy habit tables are retained temporarily.
+- Why development DDL update is not a migration strategy.
+
+### Person C: Analytics, deterministic insights, and AI
+
+Primary endpoints:
+
+- `GET /api/analytics`
+- `GET /api/insights`
+- `GET /api/ai-context`
+- FastAPI `POST /insights`
+- FastAPI health/models endpoints.
+
+Primary files:
+
+```text
+AnalyticsController / AnalyticsService
+InsightController / InsightService
+AiContextController / AiContextService
+AnalyticsDtos / InsightDtos / AiContextDtos
+DashboardPage.runAiInsights
+ai-service/app/main.py
+ai-service/app/schemas.py
+ai-service/app/prompts.py
+ai-service/app/llm_client.py
+ai-service/app/rules.py
+```
+
+Presentation story:
+
+1. Request date-range Analytics and explain backend aggregation.
+2. Show per-user thresholds in Settings.
+3. Call Spring deterministic Insights.
+4. Call authenticated AI Context.
+5. Copy the context into FastAPI `/insights`.
+6. Show `source: ai` and the exact outbound `prompt.md`.
+7. Set `use_ai: false` or stop the provider and show `source: rules`.
+8. Explain structured-output validation and current limitations.
+
+Must answer:
+
+- Why aggregation belongs in Spring instead of chart components.
+- Difference between deterministic rules and model generation.
+- Why the model does not receive database credentials or a user ID.
+- Why Pydantic validates both input and model output.
+- Why an AI fallback is necessary.
+- Why aggregate context cannot prove correlations.
+- What must change before exposing FastAPI publicly.
 
 ---
 
-## 12. Known limitations — state them confidently
+## 14. Suggested 18-minute live demonstration
 
-1. `ddl-auto: update` is appropriate for local development, not controlled
-   production schema evolution; use Flyway or Liquibase later.
-2. The local datasource password is written directly in `application.yml`;
-   it must move to environment variables or a secret manager before deployment.
-3. The JWT development default must be overridden in production.
-4. There are no backend automated tests in the current repository; add service,
-   controller and MySQL integration tests.
-5. Expense and journal list endpoints are unpaginated.
-6. Analytics currently aggregates some full lists in Java; move heavy
-   aggregation to SQL as data volume grows.
-7. JWTs have no refresh/revocation mechanism.
-8. Actuator endpoints are public for local Prometheus use and must be restricted
-   before public deployment.
-9. The Python service is out of Phase 3 scope and remains unauthenticated; it
-   must not be publicly exposed or trusted with arbitrary browser user IDs.
-10. Fake frontend metrics are unacceptable for the final demo and must be
-    removed or replaced with honest empty states.
+### Minute 0–3: Identity and security
 
-Owning these limitations demonstrates architectural judgment. None changes the
-core Phase 3 result: the Spring/MySQL API is the source of truth, React is its
-presentation client, and the future Python AI layer remains replaceable.
+1. Open Spring Swagger.
+2. Call public health.
+3. Login.
+4. Authorize Swagger with JWT.
+5. Call `/api/auth/me`.
+
+### Minute 3–8: Expense vertical slice
+
+1. Create a valid expense and show `201`.
+2. Read it back by date range.
+3. Submit amount `0` and show DTO validation.
+4. Submit an unknown category and show service validation.
+5. Call Analytics and show the same expense in totals.
+
+### Minute 8–11: Daily Log and habits
+
+1. Create or merge a partial Daily Log.
+2. Add another meal item through merge and show preservation.
+3. Create a named habit.
+4. Toggle completion for a date.
+5. Explain soft deactivation and historical retrieval.
+
+### Minute 11–14: Settings and deterministic insights
+
+1. Read user Settings.
+2. Change the analysis period or threshold.
+3. Read Settings again to prove persistence.
+4. Call `/api/insights`.
+
+### Minute 14–18: AI pipeline
+
+1. Call `/api/ai-context`.
+2. Copy values into FastAPI `/insights`.
+3. Show `source`, `model`, and validated insights.
+4. Open the ignored `prompt.md` snapshot.
+5. Demonstrate `use_ai: false` fallback.
+6. Close with the current analytical and security limitations.
+
+---
+
+## 15. Interview-ready closing statement
+
+> LifeTrack is a secure multi-user lifestyle platform. Spring Boot is the trusted application backend: it authenticates users, scopes every resource, validates contracts, applies business rules, persists MySQL records, computes analytics, and prepares AI context from user preferences. React is a presentation client. The optional FastAPI service receives already-aggregated context, constrains the provider request, validates model output, and falls back to deterministic rules. This separation keeps durable facts and identity deterministic while isolating probabilistic AI behavior.
+
+---
+
+## 16. Honest claims and limitations
+
+### Safe claims
+
+- Users can incrementally build one Daily Log per date.
+- Users can define and track their own habits.
+- Habit history survives soft deactivation.
+- Expenses and analytics use the same persisted records.
+- Date-range analytics are computed in Spring.
+- Insight thresholds are stored per user.
+- Spring offers deterministic insights without AI.
+- FastAPI supports validated AI insights with fallback.
+- The AI provider is configurable through an OpenAI-compatible API.
+- Every Spring-owned user resource is derived from the JWT identity.
+
+### Claims to avoid
+
+- “LifeTrack tracks actual steps.” It stores a target, not measured steps.
+- “The AI discovers correlations.” It currently receives aggregates.
+- “RAG powers Dashboard insights.” Vector retrieval is not integrated there.
+- “Spring calls FastAPI server-to-server.” React currently orchestrates the two calls.
+- “FastAPI is production-authenticated.” It is currently a loopback-oriented local service.
+- “The new and legacy habit models are fully migrated.” Legacy collections remain.
+- “Every AI context field reaches the Dashboard model.” Journal excerpts are currently omitted.
+- “weeklySpend is always weekly.” The current field contains selected-period spending.
+
+---
+
+## 17. Known risks and next backend work
+
+### Data and domain
+
+- Replace legacy Daily Log habit consistency with the new completion tables.
+- Migrate and eventually retire legacy habit collection tables.
+- Rename `weeklySpend` to `periodSpend` across Spring, React, and Python contracts.
+- Add dated daily observations and backend correlation calculations.
+- Use actual paired sample counts rather than treating aggregate log count as correlation evidence.
+- Forward journal excerpts only when intentionally required and privacy-reviewed.
+
+### Scalability
+
+- Add pagination to unbounded expense, journal, and Daily Log lists.
+- Move large aggregations into optimized database queries/projections.
+- Add indexes and query analysis for production-sized ranges.
+
+### Reliability
+
+- Add automated service, controller, repository, and AI contract tests.
+- Add integration tests for JWT ownership and historical habit behavior.
+- Add API compatibility tests between Spring camelCase DTOs and FastAPI snake_case schemas.
+
+### Security and production
+
+- Move Spring-to-FastAPI communication server-side or add service authentication.
+- Keep FastAPI loopback-only until authenticated.
+- Restrict Swagger and Actuator outside local development.
+- Replace development JWT and database credentials.
+- Review browser `localStorage` JWT exposure.
+- Replace `ddl-auto: update` with versioned migrations.
+- Treat AI prompt snapshots as development-only sensitive files.
+
+---
+
+## 18. Pre-presentation checklist
+
+- [ ] MySQL is running and contains the intended demonstration user.
+- [ ] Spring Boot was restarted from the current source.
+- [ ] Swagger lists all current endpoints.
+- [ ] A valid JWT login is available.
+- [ ] Expense create/read/update/delete was smoke-tested.
+- [ ] Daily Log merge was tested with incremental meal items.
+- [ ] Habit create/toggle/deactivate/history was tested.
+- [ ] Settings changes survive a second GET and backend restart.
+- [ ] Analytics uses the same date range as the demonstrated expenses.
+- [ ] Spring deterministic Insights returns real-data output.
+- [ ] FastAPI health reports the intended provider/model.
+- [ ] FastAPI `/insights` returns `source: ai` when the provider is available.
+- [ ] FastAPI returns `source: rules` when AI is disabled.
+- [ ] `ai-service/prompt.md` is ignored by Git.
+- [ ] No private keys or real user data appear in slides or committed files.
+- [ ] Known limitations are assigned to the correct presenter.
