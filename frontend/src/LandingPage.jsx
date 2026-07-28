@@ -36,7 +36,7 @@ const EXPENSES = [
 
 export default function LandingPage() {
   return (
-    <div className="app-shell--landing">
+    <div className="app-shell--landing font-body">
 
       {/* ── Top Navigation ── */}
       <nav className="topnav topnav--full" style={{ position: 'relative', left: 0 }}>
@@ -62,7 +62,7 @@ export default function LandingPage() {
           <div className="topnav__links" style={{ marginLeft: 'var(--space-8)' }}>
             <a href="#features" className="topnav__link topnav__link--active" id="nav-features">Features</a>
             <a href="#preview"  className="topnav__link" id="nav-preview">Preview</a>
-            <a href="#about"    className="topnav__link" id="nav-about">About</a>
+            <Link to="/about" className="topnav__link" id="nav-about">About</Link>
           </div>
         </div>
 
@@ -113,7 +113,7 @@ export default function LandingPage() {
                 >
                   Analytics
                 </div>
-                <div className="card__title" style={{ fontSize: 'var(--text-xl)' }}>
+                <div className="card__title card-heading">
                   Sleep duration
                 </div>
               </div>
@@ -176,9 +176,8 @@ export default function LandingPage() {
               }}
             >
               <div
+                className="card-heading"
                 style={{
-                  fontSize: 'var(--text-xl)',
-                  fontWeight: 'var(--weight-bold)',
                   marginBottom: 'var(--space-4)',
                   color: 'var(--sand-0)',
                 }}
@@ -263,7 +262,7 @@ export default function LandingPage() {
 
           {/* Headline */}
           <h1
-            className="text-display font-display"
+            className="text-display"
             id="landing-headline"
             style={{
               fontStyle: 'normal',
@@ -408,7 +407,7 @@ export default function LandingPage() {
                 >
                   {icon}
                 </div>
-                <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)', color: 'var(--ink-900)' }}>
+                <div className="sub-heading">
                   {title}
                 </div>
                 <p style={{ fontSize: 'var(--text-sm)', color: 'var(--taupe-600)', lineHeight: 'var(--lh-lg)', maxWidth: '100%' }}>
@@ -434,7 +433,7 @@ export default function LandingPage() {
           <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <path d="M16 2C14 8 8 14 4 18C8 17 12 18 14 22C14 18 16 12 22 6C20 8 18 6 16 2Z" fill="#241F1A"/>
           </svg>
-          <span style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontWeight: 700, fontSize: 'var(--text-base)' }}>
+          <span className="sidebar__logo-text" style={{ fontSize: 'var(--text-base)' }}>
             LifeTrack
           </span>
         </div>

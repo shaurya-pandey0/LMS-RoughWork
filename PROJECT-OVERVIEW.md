@@ -1,397 +1,770 @@
-# LifeTrack — Current Project State
+# LifeTrack - Current Project Overview
 
-A snapshot of everything that exists and works in this repository, verified on
-25 July 2026 by compiling/building each module. Companion to `integration.md`
-(which is the chronological journal of *how* the wiring happened); this document
-is the *what is here now* reference.
+Verified against the repository on **28 July 2026**.
 
-LifeTrack is a personal lifestyle tracker: daily logs (sleep, water, steps
-target, meals, moods, habits), expenses, a journal, analytics, rule-based
-insights, an admin view, and an optional local-LLM assistant.
+This document describes what is implemented now. It replaces the older
+MongoDB-era overview and keeps the Phase 3 backend scope separate from the
+optional Python AI work intended for Phase 4.
+
+## 1. Project in one paragraph
+
+LifeTrack is a multi-user lifestyle tracking application. Users authenticate
+with JWT, record one daily log per calendar date, manage expenses and journal
+entries, configure personal targets, view real MySQL-backed sleep and spending
+summaries, and receive deterministic Spring Boot insights. Administrators can
+view system counts and registered users.
+
+The stable Phase 3 architecture is:
+
+```text
+React presentation
+        |
+        | HTTP + JWT
+        v
+Spring Security + REST controllers + DTOs
+        |
+        v
+Services: validation, ownership, rules and aggregation
+        |
+        v
+Spring Data JPA / Hibernate
+        |
+        v
+MySQL
+```
+
+The separate FastAPI service is an optional Phase 4 prototype. It is not Spring
+AI and is not required for the Phase 3 CRUD application.
 
 ---
 
-## 1. Repository layout
+## 2. Repository layout
 
-```
+```text
 lms-frontend-backend-springboot/
-├─ backend/         Spring Boot 3.3.4 + MongoDB REST API      (port 8080)
-├─ frontend/        React 19 + Vite 8 SPA                     (port 5173)
-├─ ai-service/      FastAPI microservice → LM Studio          (port 8100)
-├─ UI/              Design references: mockups, design-system docs, tokens.json
-├─ start-lifetrack.bat   Launches MongoDB + backend + AI + frontend in 4 windows
-├─ integration.md   Phase-by-phase integration journal
-├─ .env             Root env file (holds an LM Studio API key)
-├─ .github/modernize/    Java-upgrade tooling hooks (unused by the app)
-└─ .metadata/, .vscode/  Eclipse workspace metadata / editor settings
+|-- backend/                 Spring Boot + JPA + MySQL API
+|-- frontend/                React + Vite single-page application
+|-- ai-service/              Optional FastAPI/LLM/vector prototype
+|-- monitoring/              Prometheus and Grafana local Docker setup
+|-- UI/                      Approved screens and LifeTrack design system
+|-- docs/                    Architecture, presentation and audit notes
+|-- API Create Expense/      Create-expense pipeline walkthrough
+|-- start-lifetrack.bat      Windows setup and launcher
+|-- start-lifetrack.sh       macOS/Linux setup and launcher
+|-- integration.md          Historical integration journal
+|-- initial promise.md       Original academic project promise
+`-- PROJECT-OVERVIEW.md      Current-state reference (this file)
 ```
 
-Three independent processes. The frontend talks to **both** the Spring backend
-and the AI service directly; **the backend never calls the AI service** (no HTTP
-client to port 8100 exists in the Java code).
+Main development ports:
 
-```
-React (5173) ──Authorization: Bearer <jwt>──▶ Spring Boot (8080) ──▶ MongoDB (27017)
-      │
-      └── plain JSON, no auth ──▶ FastAPI (8100) ──▶ LM Studio (1234, OpenAI-compatible)
-```
-Updated
-```
-React (5173) ──Authorization: Bearer <jwt>──▶ Spring Boot (8080) ──▶ MongoDB (27017) ──▶ Spring Boot (8080)  ──▶ FastAPI (8100) ──▶ chatGPT(1234, OpenAI-compatible)
-
-```
-
-
-## 2. Verified build state (this snapshot)
-
-| Module | Command run | Result |
-| --- | --- | --- |
-| backend | `mvnw.cmd -o -DskipTests compile` | BUILD SUCCESS, 43 source files, Java 17 |
-| frontend | `npm run build` | Built in ~650 ms → `dist/` (JS 326 kB, CSS 54 kB) |
-| frontend | `npm run lint` | Clean, no errors |
-| ai-service | `.venv\Scripts\python -m pip list` | venv present, all deps installed incl. `turbovec 0.8.0` |
-
-Not verified here (needs running services): live MongoDB round-trips and LM
-Studio generation. `integration.md` records those as passing at the time of the
-last integration run.
-
-There are **no automated tests** in any module. The backend has test
-dependencies (`spring-boot-starter-test`, `spring-security-test`) and an empty
-`target/test-classes`, but no test sources.
+| Process | Default address |
+|---|---|
+| React/Vite | `http://localhost:5173` |
+| Spring Boot API | `http://localhost:8080` |
+| MySQL | `localhost:3306` |
+| FastAPI (optional) | `http://127.0.0.1:8100` |
+| LM Studio/provider (optional local default) | `http://localhost:1234/v1` |
+| Prometheus (optional) | `http://localhost:9090` |
+| Grafana (optional) | `http://localhost:3000` |
 
 ---
 
-## 3. Backend — `backend/`
+## 3. Verification state
 
-Spring Boot **3.3.4**, Java **17**, Maven wrapper included. Artifact
-`com.lifetrack:lifetrack-backend:0.0.1-SNAPSHOT`.
+The following checks were run while updating this document:
 
-Dependencies: `spring-boot-starter-web`, `-data-mongodb`, `-security`,
-`-validation`, `springdoc-openapi-starter-webmvc-ui 2.6.0`, `jjwt 0.12.6`
-(api/impl/jackson).
+| Module | Verification | Result |
+|---|---|---|
+| Backend | Maven offline compile using the local Maven repository | `BUILD SUCCESS`; 55 Java source files |
+| Frontend | `npm.cmd run lint` | Clean |
+| Frontend | `npm.cmd run build` | Success; 48 modules transformed |
+| AI service | `python -m compileall -q app` | Success |
+| Tests | Repository search | No JUnit, frontend unit, or Python test suite found |
 
-### Package structure (`com.lifetrack`)
-
-| Package | Contents |
-| --- | --- |
-| root | `LifeTrackApplication` |
-| `config` | `SecurityConfig`, `CorsProperties`, `JwtProperties`, `InsightProperties` |
-| `controller` | `Auth`, `DailyLog`, `Expense`, `Journal`, `Analytics`, `Insight`, `Admin`, `Health` |
-| `service` | `Auth`, `DailyLog`, `Expense`, `Journal`, `Analytics`, `Insight` |
-| `repository` | `User`, `DailyLog`, `Expense`, `JournalEntry` (Spring Data Mongo) |
-| `entity` | `User`, `Role`, `DailyLog` (+ nested `Meal`), `Expense`, `JournalEntry` |
-| `dto` | Request/response records per resource, `UserDto` |
-| `exception` | `GlobalExceptionHandler`, `BadRequestException`, `ResourceNotFoundException` |
-| `security` | `JwtService`, `JwtAuthenticationFilter`, `CustomUserDetailsService`, `UserPrincipal`, `SecurityUtils` |
-
-### Security model
-
-- Stateless JWT (`SessionCreationPolicy.STATELESS`), CSRF disabled, BCrypt password hashing.
-- `JwtAuthenticationFilter` runs before `UsernamePasswordAuthenticationFilter`.
-- Public: `/api/auth/**`, `GET /api/health`, `/v3/api-docs/**`, `/swagger-ui/**`.
-- `/api/admin/**` requires role `ADMIN`; everything else requires authentication.
-- `@EnableMethodSecurity` is on, so method-level annotations are available.
-- CORS: origins from `app.cors.allowed-origins`, methods GET/POST/PUT/PATCH/DELETE/OPTIONS, credentials allowed.
-- Every non-admin service method is scoped by `SecurityUtils.currentUserId()`, so
-  users can only read/write their own documents.
-
-### Data model (MongoDB collections)
-
-| Collection | Fields | Indexes |
-| --- | --- | --- |
-| `users` | `id`, `fullName`, `email`, `password` (BCrypt), `role` (`USER`/`ADMIN`), `createdAt` | unique on `email` |
-| `daily_logs` | `id`, `userId`, `date`, `sleepHours`, `stepTarget`, `waterIntake`, `transactionalHabits[]`, `embeddedHabits[]`, `meals[{name, items[]}]`, `morningMood`, `afternoonMood`, `eveningMood`, `createdAt`, `updatedAt` | unique compound `(userId, date)` |
-| `expenses` | `id`, `userId`, `date`, `category`, `amount`, `createdAt` | `userId` |
-| `journal_entries` | `id`, `userId`, `date`, `mood`, `text`, `createdAt`, `updatedAt` | `userId` |
-
-Expense categories used by the UI: Food, Housing, Travel, Wellness, Misc.
-Journal moods: happy, calm, anxious, grateful, tired.
-
-### REST API
-
-All paths are prefixed `/api`. Auth = `Authorization: Bearer <jwt>` unless noted.
-
-| Method | Path | Auth | Notes |
-| --- | --- | --- | --- |
-| GET | `/health` | public | `{"status":"UP"}` |
-| POST | `/auth/register` | public | `{fullName, email, password≥8}` → 201 `{token, tokenType, user}` |
-| POST | `/auth/login` | public | `{email, password}` → 200 same shape |
-| GET | `/auth/me` | user | current `UserDto` |
-| GET | `/daily-logs` | user | own logs, date desc |
-| GET | `/daily-logs/{id}` | user | 404 if not owned |
-| POST | `/daily-logs` | user | **upsert by (userId, date)** — re-saving a day updates it |
-| PUT | `/daily-logs/{id}` | user | full replace |
-| DELETE | `/daily-logs/{id}` | user | 204 |
-| GET/POST/PUT/DELETE | `/expenses`, `/expenses/{id}` | user | CRUD; `amount` must be positive |
-| GET/POST/PUT/DELETE | `/journal`, `/journal/{id}` | user | CRUD; `mood` and `text` required |
-| GET | `/analytics` | user | `{weeklySleep[{date,hours}], expensesByCategory, totalExpenses, moodCounts, journalEntryCount}` |
-| GET | `/insights` | user | `{from, to, insights[{category, severity, title, message, metric}]}` |
-| GET | `/admin/stats` | admin | totals + aggregated expenses-by-category and mood counts |
-| GET | `/admin/users` | admin | all users as `UserDto` |
-
-Swagger UI is available at `/swagger-ui.html` (springdoc), OpenAPI JSON at
-`/v3/api-docs`.
-
-Errors come from `GlobalExceptionHandler` as `{message}` plus, for bean
-validation failures, `{errors: {field: message}}` — which the frontend maps to
-per-input errors.
-
-### Rule-based insight engine (`InsightService`)
-
-Deterministic, no external calls, trailing 7-day window (today + previous 6).
-Five rules, each emitting at most one insight and staying silent without enough
-data; if nothing fires, a "Not enough data yet" INFO insight is returned.
-
-| Rule | Fires when | Severity |
-| --- | --- | --- |
-| Sleep | avg `< min-sleep-hours` (6.0) / `≥ good-sleep-hours` (7.5) | warning / positive |
-| Spending | 7-day total `> weekly-spending-threshold` (1000) | warning |
-| Habit consistency | ≥3 logged days and habit-days/7 `< threshold` (0.5) | warning |
-| Hydration | avg water `< min-water-intake-ml` (2000) | warning |
-| Mood | negative vs positive mood tally across logs + journals | warning / positive |
-
-Thresholds are externalised via `app.insights.*` in `application.yml`.
-
-### Configuration (`application.yml`)
-
-| Key | Env override | Default |
-| --- | --- | --- |
-| `spring.data.mongodb.uri` | `MONGODB_URI` | `mongodb://localhost:27017/lifetrack` |
-| `app.jwt.secret` | `APP_JWT_SECRET` | dev base64 secret **checked into the repo** |
-| `app.jwt.expiration-ms` | `APP_JWT_EXPIRATION_MS` | `86400000` (24 h) |
-| `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` |
-| `app.insights.*` | `APP_INSIGHTS_*` | see table above |
-| server port | — | `8080` |
-
-### Seed data (`backend/seed-data.js`)
-
-Run with `mongosh "mongodb://127.0.0.1:27017/lifetrack" seed-data.js`.
-Idempotent for the three demo accounts (it deletes and recreates only those).
-
-| User | Role | Pattern | Password |
-| --- | --- | --- | --- |
-| `alex@example.com` | USER | healthy → positive insights | `Password123!` |
-| `priya@example.com` | USER | poor → warning insights | `Password123!` |
-| `sam@example.com` | ADMIN | mixed | `Password123!` |
-
-Each gets 7 days of daily logs plus expenses and journal entries.
+This pass did **not** start MySQL, exercise live HTTP requests, call an LLM, or
+start Prometheus/Grafana. Those require the local services to be running.
 
 ---
 
-## 4. Frontend — `frontend/`
+## 4. Backend
 
-React **19.2**, Vite **8**, React Router **7.17**, Tailwind **4** (via
-`@tailwindcss/vite`) alongside a hand-written CSS design system. ESLint 10 flat
-config. JavaScript + JSX, no TypeScript.
+### 4.1 Stack
 
-### Routes (`src/App.jsx`)
+- Java 17
+- Spring Boot 3.3.4
+- Spring Web
+- Spring Security
+- Spring Validation
+- Spring Data JPA / Hibernate
+- MySQL Connector/J
+- JJWT 0.12.6
+- springdoc OpenAPI 2.6.0
+- Spring Boot Actuator
+- Micrometer Prometheus registry
 
-| Path | Page | Gate |
-| --- | --- | --- |
-| `/` | `LandingPage` | public |
-| `/login` | `LoginPage` | public |
-| `/register` | `RegisterPage` | public |
-| `/dashboard` | `DashboardPage` | authenticated |
-| `/daily-log` | `DailyLogPage` | authenticated |
-| `/expenses` | `ExpensesPage` | authenticated |
-| `/journal` | `JournalPage` | authenticated |
-| `/analytics` | `AnalyticsPage` | authenticated |
-| `/admin` | `AdminPage` | authenticated + `ADMIN` |
-| `*` | redirect to `/` | — |
+Artifact:
 
-`App.jsx` also provides `ScrollToTop` and a class-based `ErrorBoundary` with a
-"Something went wrong" fallback card. `ProtectedRoute` renders nothing while
-auth is hydrating, redirects anonymous users to `/login` (preserving the intended
-path in `location.state.from`), and bounces non-admins from admin routes to
-`/dashboard`.
-
-### Integration layer
-
-- **`src/lib/api.js`** — single `fetch` wrapper. Reads `VITE_API_BASE_URL`,
-  attaches the JWT from `localStorage` (`lifetrack.token`), handles `204`,
-  throws `ApiError(status, message, fieldErrors)` on non-2xx, clears the token
-  and dispatches a `lifetrack:unauthorized` event on 401, and converts network
-  failures into `ApiError(0, ...)`. Exposes `authApi`, `dailyLogApi`,
-  `expenseApi`, `journalApi`, `analyticsApi`, `insightsApi`, `adminApi`, and a
-  separate `aiApi` (`health`, `chat`, `insights`) pointed at `VITE_AI_BASE_URL`.
-- **`src/lib/auth.jsx`** — `AuthProvider` / `useAuth` exposing
-  `{user, token, isAuthenticated, isAdmin, loading, login, register, logout}`.
-  Persists user + token, hydrates via `GET /auth/me` when a token exists without
-  a user, and listens for `lifetrack:unauthorized`.
-- **`src/components/Sidebar.jsx`** — shared nav; shows the real user's name and
-  initials, conditionally renders the Admin link, and provides logout.
-
-### Page-by-page data wiring
-
-| Page | State |
-| --- | --- |
-| Landing | Static marketing page with an in-page app mockup. |
-| Login / Register | Live `POST /auth/login` and `/auth/register`; server messages shown as a form banner, `errors` map bound to individual inputs. |
-| Dashboard | Live: weekly sleep bars and expense donut from `/analytics`; Insights card from `/insights`, with an opt-in "✨ AI" button that switches to the AI service's `/insights` and labels the source. |
-| Daily Log | Live: loads all logs on mount, pre-populates today's entry, single "Save Today's Log" posts to `/daily-logs` (upsert). |
-| Expenses | Full live CRUD; optimistic delete with rollback; keeps `isoDate` alongside the display date so editing pre-fills the picker. |
-| Journal | Full live CRUD; AI Assistant panel posts to the AI service `/chat` with a context built from the user's entries, a rolling 6-message history, `user_name` and `user_key`; graceful message when the service is down. |
-| Analytics | **Partly mocked.** Sleep line chart uses `/analytics` `weeklySleep`; step bar chart, habit donut, and the grouped per-day expense chart are still generated mock data (`mockSleep` is only a fallback; `expenseGroups = mockExpenses`). |
-| Admin | Live `/admin/stats` cards and an `/admin/users` table (name, email, role chip). |
-
-### Styling
-
-`src/styles/`: `tokens.css`, `reset.css`, `typography.css`, `layout.css`,
-`components.css`, `main.css`, plus per-page sheets (`admin`, `analytics`,
-`daily-log`, `expenses`, `journal`). Charts are hand-rolled SVG/CSS — no chart
-library. Assets: `botanical-shadow.png`, `geometric-mesh.svg`, `hero.png`.
-`public/` has `favicon.svg` and `icons.svg`. A built `dist/` exists locally
-(gitignored).
-
-### Environment (`frontend/.env`)
-
-```
-VITE_API_BASE_URL=http://localhost:8080/api
-VITE_AI_BASE_URL=http://localhost:8100
+```text
+com.lifetrack:lifetrack-backend:0.0.1-SNAPSHOT
 ```
 
-(The comment in that file calling the AI URL a "Phase 2 placeholder" is stale —
-it is in active use.)
+The `pom.xml` description still says MongoDB, but the dependency and
+implementation use JPA and MySQL. See the documentation-drift section below.
 
----
+### 4.2 Package responsibilities
 
-## 5. AI service — `ai-service/`
+| Package | Responsibility |
+|---|---|
+| `config` | Security, CORS, JWT, rule thresholds and reference vocabulary |
+| `controller` | REST endpoints and HTTP status handling |
+| `dto` | Validated request and response contracts |
+| `service` | Ownership, validation, upsert rules, aggregation and insights |
+| `repository` | Spring Data JPA repositories |
+| `entity` | MySQL/JPA entities and the meals JSON converter |
+| `security` | JWT filter, token service, current-user resolution |
+| `exception` | Consistent API errors and validation responses |
 
-FastAPI **0.115.6** + uvicorn, Pydantic **2.10.4** / pydantic-settings,
-httpx, numpy, `turbovec 0.8.0`. Runs standalone at `http://127.0.0.1:8100`
-(`run.ps1` creates the venv, copies `.env`, and starts uvicorn). Interactive
-docs at `/docs`. Title reports version `1.1.0`.
+The main request path is:
 
-Provider-agnostic: it speaks the OpenAI-compatible `/models`,
-`/chat/completions`, and `/embeddings` endpoints, so `lmstudio`, `openai`,
-`mistral`, and `gemini` (OpenAI-compat) are all selectable by config alone.
-Current `.env` targets **LM Studio at `http://localhost:1234/v1`** with model
-`qwen3.5-2b-mtp` and embedding model `text-embedding-nomic`, i.e. fully offline
-over loopback.
+```text
+Controller -> DTO validation -> Service -> JPA repository -> MySQL
+```
 
-### Endpoints
+### 4.3 Security model
+
+- Stateless JWT authentication; no server session.
+- BCrypt password hashes.
+- The JWT filter runs before Spring's username/password filter.
+- CSRF is disabled for the stateless JSON API.
+- CORS origins come from `app.cors.allowed-origins`.
+- User-facing services obtain the user ID from the authenticated JWT through
+  `SecurityUtils.currentUserId()`.
+- Resource lookups use both record ID and user ID, preventing one normal user
+  from reading or changing another user's records.
+- `/api/admin/**` requires the `ADMIN` role. A normal or unauthenticated Swagger
+  request to an admin endpoint correctly returns `403`.
+
+Public endpoints:
+
+```text
+/api/auth/**
+GET /api/health
+/v3/api-docs/**
+/swagger-ui/**
+/swagger-ui.html
+/actuator/**
+```
+
+Everything else requires a valid bearer token.
+
+### 4.4 MySQL configuration
+
+Current local configuration in `backend/src/main/resources/application.yml`:
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/lifestyle_ai?createDatabaseIfNotExist=true
+    username: root
+    password: "1234"
+  jpa:
+    hibernate:
+      ddl-auto: update
+```
+
+Hibernate creates or updates the schema when the backend starts. This is
+convenient for local development, but migrations should replace `ddl-auto:
+update` before a serious deployment.
+
+### 4.5 Current tables
+
+The `lifestyle_ai` database has seven application tables:
+
+| Table | Purpose |
+|---|---|
+| `users` | Account, BCrypt password, role and creation time |
+| `user_settings` | One settings row per user |
+| `daily_logs` | One daily record per user and calendar date |
+| `daily_log_transactional_habits` | Habit values linked to a daily log |
+| `daily_log_embedded_habits` | Second habit collection linked to a daily log |
+| `expenses` | User-owned dated expense rows |
+| `journal_entries` | User-owned dated journal entries |
+
+Important persistence details:
+
+- IDs are MySQL auto-incrementing `BIGINT` values.
+- `users.email` is unique.
+- `user_settings.user_id` is unique.
+- `daily_logs` has a unique `(user_id, date)` constraint.
+- Daily-log habit lists use two collection tables.
+- Meals are stored as JSON in the `daily_logs.meals` `TEXT` column through
+  `MealListConverter`.
+- Expenses and journal entries have indexes for user and user/date access.
+- Entities store numeric `userId` values rather than a JPA `User` relationship.
+
+### 4.6 Daily-log invariant
+
+A user has at most **one daily-log row for a date**.
+
+`POST /api/daily-logs` is an upsert:
+
+```text
+authenticated user + requested date
+        |
+        | findByUserIdAndDate(...)
+        v
+existing row -> update it
+no row       -> insert it
+```
+
+Re-saving today's sleep, water, moods, meals or habits therefore updates the
+same row and ID instead of creating duplicate daily logs.
+
+`stepTarget` is a configured target. LifeTrack does **not** currently record an
+actual step count.
+
+### 4.7 REST API
+
+All application API paths below require
+`Authorization: Bearer <jwt>` unless marked public.
+
+#### Authentication and health
 
 | Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/health` | status, provider, base URL, default model |
-| GET | `/models` | model ids from the provider (empty list if unreachable) |
-| POST | `/insights` | LLM insights validated against `AiInsightList`; falls back to `rules.py` when AI is off, errors, or returns nothing (`source: "ai"` / `"rules"`) |
-| POST | `/chat` | grounded assistant reply + suggestions (`source: "ai"` / `"fallback"`); `context_mode` `full` or `local_vector` |
-| POST | `/vectors/upsert` | embed + index a user's journal records |
-| POST | `/vectors/search` | semantic search over one user's index |
-| DELETE | `/vectors/{user_key}` | drop a user's store |
+|---|---|---|
+| `POST` | `/api/auth/register` | Create a user and return JWT + user DTO (public) |
+| `POST` | `/api/auth/login` | Authenticate and return JWT + user DTO (public) |
+| `GET` | `/api/auth/me` | Return the authenticated user |
+| `GET` | `/api/health` | Lightweight `{"status":"UP"}` response (public) |
 
-The frontend currently uses `/health`, `/chat`, and `/insights` only — the
-`/vectors/*` endpoints are functional but not called from the UI, and
-`ai-service/data/users/` is currently empty (no stores created yet).
+#### Daily logs
 
-### Structured-output contract
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/daily-logs` | List the current user's logs |
+| `GET` | `/api/daily-logs?date=YYYY-MM-DD` | Return a zero-or-one-item list for one date |
+| `GET` | `/api/daily-logs?from=YYYY-MM-DD&to=YYYY-MM-DD` | List a date range |
+| `GET` | `/api/daily-logs/today` | Today's row, or `204 No Content` |
+| `GET` | `/api/daily-logs/{id}` | Get one owned row |
+| `POST` | `/api/daily-logs` | Insert or update by user/date; returns `201` |
+| `PUT` | `/api/daily-logs/{id}` | Replace one owned row |
+| `DELETE` | `/api/daily-logs/{id}` | Delete one owned row; returns `204` |
 
-`schemas.py` validates three boundaries: inbound requests, raw LLM output
-(`AiInsightList`, `AiChatReply`), and outbound responses. `llm_client.py`
-negotiates the structured-output mode per provider — `json_schema` →
-`json_object` → prompt-only — and caches the first mode that isn't rejected with
-HTTP 400. Before sending a JSON schema as a grammar it runs
-`_grammar_safe_schema()`, which strips `maxLength`/`minLength`/`pattern`/
-`minItems`/`maxItems`/numeric bounds; llama.cpp rejects large repetition counts
-in GBNF, which previously broke structured output silently. The real limits are
-still enforced by Pydantic on the service side.
+#### Expenses
 
-`rules.py` mirrors the Spring `InsightService` rules (sleep, spending, habits,
-hydration, mood) so a deterministic answer is always available.
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/expenses` | List owned expenses, newest date first |
+| `GET` | `/api/expenses/{id}` | Get one owned expense |
+| `POST` | `/api/expenses` | Create an expense |
+| `PUT` | `/api/expenses/{id}` | Update an expense |
+| `DELETE` | `/api/expenses/{id}` | Delete an expense |
 
-### Local vector store
+Amounts must be positive and categories must exist in the backend reference
+catalogue.
 
-Per-user, per-machine stores under `VECTOR_DATA_DIR` (`./data/users`):
+#### Journal
 
-```
-data/users/<sha256(salt:user_key)[:32]>/
-  meta.json        dim, backend, model, next_id, ext-id → int-id map
-  index.tvim|.npz  the index
-  payloads.jsonl   int-id → {ext_id, date, mood, snippet}
-```
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/journal` | List owned entries, newest date first |
+| `GET` | `/api/journal/{id}` | Get one owned entry |
+| `POST` | `/api/journal` | Create an entry |
+| `PUT` | `/api/journal/{id}` | Update an entry |
+| `DELETE` | `/api/journal/{id}` | Delete an entry |
 
-Two interchangeable index backends (`vector/index.py`): `TurboVecIndex`
-(TurboQuant 4-bit, stable uint64 ids, persisted via `write`/`load`) and a
-float32 cosine `NumpyIndex` fallback chosen automatically when `turbovec` isn't
-importable. `VECTOR_BACKEND=auto|turbovec|numpy` forces the choice.
-`UserStoreManager` keeps an LRU of resident indexes (`VECTOR_CACHE_USERS`, default
-16) and isolates stores per user key. `vector/retrieval.py` embeds the query,
-pulls top-k snippets, and folds them into a `LifestyleContext` while keeping any
-numeric fields the caller supplied.
+Mood and text are validated; the mood must exist in the backend catalogue.
 
-`docs/vector-db-turbovec.md` documents the design in more depth.
+#### Settings, vocabulary, analytics and insights
 
-### Key settings (`.env` / `.env.example`)
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/reference` | Expense categories, habit catalogues and mood lists |
+| `GET` | `/api/settings` | Get or create the current user's targets |
+| `PUT` | `/api/settings` | Update budget, sleep, step and water targets |
+| `GET` | `/api/analytics` | User sleep/expense/mood/journal summary |
+| `GET` | `/api/insights` | Deterministic trailing-seven-day insights |
+| `GET` | `/api/ai-context` | Authenticated aggregate context for optional Python AI |
+| `GET` | `/api/ai-context?days=N` | Same context for a requested period |
 
-`AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TEMPERATURE` (0.4),
-`AI_TIMEOUT_SECONDS` (60), `AI_MAX_TOKENS` (800),
-`AI_RETRIEVAL_MODE` (`full`), `EMBEDDING_MODEL`, `VECTOR_DATA_DIR`,
-`VECTOR_TOP_K` (5), `VECTOR_CACHE_USERS`, `VECTOR_BIT_WIDTH` (4),
-`VECTOR_BACKEND`, `USER_KEY_SALT`, `MAX_SNIPPET_CHARS` (500),
-`CORS_ALLOWED_ORIGINS`. `AI_JSON_MODE` (default `auto`) is supported by
-`config.py` but not listed in either env file.
+`/api/analytics` currently returns:
+
+- Sleep points for today and the previous six days.
+- Expense totals and category totals across the user's stored expenses.
+- Journal mood counts and journal-entry count across stored entries.
+
+The visible Analytics page intentionally renders only the real sleep chart.
+Unsupported step, habit and comparison charts were removed rather than showing
+seeded or permanently empty data.
+
+#### Administrator
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/stats` | Counts plus aggregate expense/mood maps |
+| `GET` | `/api/admin/users` | All users as safe `UserDto` objects |
+
+These endpoints require a JWT whose user has role `ADMIN`.
+
+#### Documentation and monitoring
+
+| Path | Purpose |
+|---|---|
+| `/swagger-ui.html` | Interactive OpenAPI UI |
+| `/v3/api-docs` | OpenAPI JSON |
+| `/actuator/health` | Detailed Spring health |
+| `/actuator/metrics` | Actuator metrics catalogue |
+| `/actuator/prometheus` | Prometheus scrape format |
+
+Actuator is intentionally public for local monitoring. It must be restricted
+before public deployment.
+
+### 4.8 Backend-owned domain logic
+
+#### Reference vocabulary
+
+Spring owns:
+
+- Expense categories: `Food`, `Housing`, `Travel`, `Wellness`, `Misc`.
+- Transactional and embedded habit catalogues.
+- Journal moods: `happy`, `calm`, `anxious`, `grateful`, `tired`.
+- Daily moods: `great`, `good`, `okay`, `meh`, `bad`.
+
+`GET /api/reference` populates frontend controls, and the write-side services
+reject unknown categories or moods. The lists are no longer duplicated as
+business constants in React pages.
+
+#### Per-user settings
+
+The first `GET /api/settings` creates defaults when a user has no settings row:
+
+| Setting | Default |
+|---|---:|
+| Monthly budget | 4000 |
+| Sleep target | 8 hours |
+| Daily step target | 10000 |
+| Water target | 2000 mL |
+
+Targets can be updated with `PUT /api/settings`.
+
+#### Rule-based insights
+
+`InsightService` evaluates the authenticated user's trailing seven days:
+
+| Rule | Current behavior |
+|---|---|
+| Sleep | Warn below 6.0 hours; positive at or above 7.5 |
+| Spending | Warn when seven-day total exceeds 1000 |
+| Habit consistency | With at least 3 logged days, warn below 0.5 |
+| Hydration | Warn when average water is below 2000 mL |
+| Mood | Compare positive and negative moods from logs and journals |
+
+Thresholds are externalized under `app.insights.*`. When no rule can make a
+meaningful statement, the API returns an informational "Not enough data yet"
+insight.
+
+#### AI context boundary
+
+`AiContextService` aggregates authenticated, user-scoped facts for a configurable
+period (30 days by default):
+
+- average sleep and water
+- spending and category totals
+- habit consistency
+- mood counts
+- up to 10 recent journal excerpts, each truncated to 500 characters
+- the same insight thresholds used by Spring
+
+React does not calculate those domain facts itself.
 
 ---
 
-## 6. Running it
+## 5. Frontend
 
-Ports: MongoDB 27017, backend 8080, AI service 8100, frontend 5173, LM Studio 1234.
+### 5.1 Stack
 
-Double-click `start-lifetrack.bat` (reuses an existing mongod on 27017, else
-starts one with `--dbpath .\data\mongodb`; starts the backend via `mvnw.cmd
-spring-boot:run`, the AI service if `.venv` exists, and Vite; waits 30 s and
-opens the browser). Manually:
+- React 19.2
+- React DOM 19.2
+- React Router 7.17
+- Vite 8
+- ESLint 10
+- JavaScript and JSX
+- LifeTrack's hand-written CSS design system
+- Tailwind packages are installed, but the current pages primarily use the
+  documented CSS tokens and component classes.
 
+### 5.2 Routes
+
+| Route | Page | Access |
+|---|---|---|
+| `/` | Landing | Public |
+| `/about` | About/team page | Public |
+| `/login` | Login | Public |
+| `/register` | Registration | Public |
+| `/dashboard` | Dashboard | Authenticated |
+| `/daily-log` | Today's daily log | Authenticated |
+| `/expenses` | Expense CRUD | Authenticated |
+| `/journal` | Journal CRUD and optional AI chat | Authenticated |
+| `/analytics` | Real sleep analytics | Authenticated |
+| `/settings` | Budget/sleep/step/water targets | Authenticated |
+| `/admin` | Admin counts and user table | `ADMIN` only |
+| `*` | Redirect to `/` | Public fallback |
+
+`ProtectedRoute` waits for authentication hydration, redirects anonymous users
+to login, and redirects non-admin users away from `/admin`. `ScrollToTop`
+resets page position on route changes, and an error boundary supplies a
+user-facing fallback if a page crashes.
+
+### 5.3 Shared integration layer
+
+#### `src/lib/api.js`
+
+- Uses `VITE_API_BASE_URL`, defaulting to
+  `http://localhost:8080/api`.
+- Adds the JWT from `localStorage` as a bearer token.
+- Handles JSON, `204 No Content`, network failures and structured field errors.
+- Clears the token and emits `lifetrack:unauthorized` after a `401`.
+- Exposes helpers for auth, daily logs, expenses, journals, analytics,
+  insights, admin, reference data, settings and AI context.
+- Contains a separate unauthenticated client for the local FastAPI service.
+
+#### `src/lib/auth.jsx`
+
+`AuthProvider` exposes:
+
+```text
+user, token, isAuthenticated, isAdmin, loading,
+login, register, logout
 ```
-mongod --dbpath <data dir>
-cd backend      && mvnw.cmd -DskipTests spring-boot:run
-cd ai-service   && .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8100
-cd frontend     && npm run dev
-mongosh "mongodb://127.0.0.1:27017/lifetrack" backend/seed-data.js
+
+It stores the JWT locally, hydrates the current user through
+`GET /api/auth/me`, and reacts to unauthorized events from the API wrapper.
+
+#### `src/lib/reference.jsx`
+
+`ReferenceProvider` loads these after authentication:
+
+```text
+GET /api/reference
+GET /api/settings
 ```
 
-The AI service and LM Studio are optional: without them the Journal chat shows a
-friendly unavailable message and the Dashboard keeps Spring's rule-based
-insights.
+Pages consume backend categories, habits, moods and user targets through
+`useReference()`. Colors and emoji labels remain presentation concerns in
+React.
+
+#### Shared UI
+
+- `Sidebar` renders navigation, real user initials/name, role-aware Admin link,
+  settings navigation and logout.
+- `UserProfileModal` is read-only and shows the authenticated name, email and
+  role already held by the auth context.
+- The LifeTrack design system lives in `frontend/src/styles/` and is documented
+  by `UI/Reference.html` and `UI/design-system/`.
+
+### 5.4 Current page behavior
+
+| Page | Current data and behavior |
+|---|---|
+| Landing | Public marketing page. Its small chart/expense preview is illustrative marketing content, not authenticated user data. |
+| About | Project purpose, team and Phase 3/Phase 4 explanation. Optional team WebP files replace botanical-initial fallbacks automatically. |
+| Login/Register | Real Spring authentication with server and field-level errors. |
+| Dashboard | Real sleep and expense visualizations from `/api/analytics`; deterministic cards from `/api/insights`; optional opt-in AI call. |
+| Daily Log | Loads only `/api/daily-logs/today`; saves through the user/date upsert. Habits and moods come from `/api/reference`. |
+| Expenses | Full real create/list/update/delete flow. Category and budget information comes from Spring. |
+| Journal | Full real CRUD. Mood vocabulary comes from Spring. The optional chat first requests Spring-built `/api/ai-context`, then calls FastAPI. |
+| Analytics | Only the real MySQL-backed sleep-duration line chart remains. Unsupported fake charts were removed. |
+| Settings | Real `GET/PUT /api/settings` for four persisted targets. |
+| Admin | Real `/api/admin/stats` count cards and `/api/admin/users` table. Seeded charts and the inert trends tab were removed. |
+
+### 5.5 Styling and UI references
+
+The frontend is guided by repository-owned references, not ad-hoc page design:
+
+```text
+UI/Reference.html
+UI/design-system/README.md
+UI/design-system/01-design-tokens.md ... 07-logo-guidelines.md
+UI/1. Landing page.jpg ... UI/Admin page.png
+frontend/src/styles/tokens.css
+frontend/src/styles/typography.css
+frontend/src/styles/layout.css
+frontend/src/styles/components.css
+```
+
+Typography:
+
+- Playfair Display for display, page and section headings.
+- Inter for body text, navigation, forms and card headings.
+
+Primary assets include the botanical shadow, geometric mesh, logo/icon sprites,
+public favicon, and optional team photos under
+`frontend/src/assets/team/`.
 
 ---
 
-## 7. Gaps and known issues
+## 6. Optional Python AI service
 
-Functional gaps
-- **No tests anywhere** — no JUnit, no Vitest, no pytest.
-- **Analytics page is partly mocked**: steps, habit completion, and per-day
-  expense grouping have no backing endpoints. `stepTarget` is stored but never
-  aggregated; habit completion would need a new endpoint.
-- **Admin surface is thin**: stats + user list only. No user edit/delete/role
-  change, no pagination, and `AdminStatsResponse.aggregated*` fields are
-  returned but unused by the UI.
-- **AI vector endpoints are unused by the UI**, so `local_vector` chat mode is
-  never exercised from the browser (nothing upserts journal entries into the
-  index).
-- No refresh tokens, password reset, email verification, or profile editing.
-- No Dockerfiles, CI pipeline, or deployment config.
+### 6.1 Honest current boundary
 
-Security notes
-- The **default JWT secret is committed** in `application.yml`. Fine for local
-  dev, must be overridden via `APP_JWT_SECRET` anywhere else.
-- `ai-service/.env` holds an LM Studio API key and *is* gitignored. The **root
-  `.env` also holds a key and is not covered by any `.gitignore`** (there is no
-  root-level ignore file) — worth fixing before publishing.
-- JWT is stored in `localStorage`, which is XSS-exposed; HttpOnly cookies would
-  be stricter but require changing both sides.
-- **The AI service has no authentication** — any local process can POST to
-  `/chat`, `/insights`, or `/vectors/*` and, with a guessed `user_key`, read
-  another user's indexed snippets. Acceptable while it is bound to `127.0.0.1`;
-  do not expose it on a network without adding auth.
-- CORS on both services is limited to the two localhost dev origins, which needs
-  updating for any real deployment.
+There is **no Spring AI integration**.
 
-Housekeeping
-- Eclipse workspace metadata (`.metadata/`, `backend/.metadata/`,
-  `backend/.settings/`, `.classpath`, `.project`) and build output
-  (`backend/target/`, `frontend/dist/`, `frontend/node_modules/`) sit in the
-  tree; the frontend ones are gitignored, the Eclipse ones are not.
-- `frontend/.env` comment still describes the AI URL as an unused placeholder.
-- `.github/modernize/java-upgrade/` holds tooling hooks unrelated to the app.
+Spring Boot does not currently make an HTTP call to FastAPI. The implemented
+browser flow is:
+
+```text
+React --JWT--> GET /api/ai-context --Spring/JPA--> MySQL
+   |
+   | receives authenticated aggregate context
+   |
+   `--plain JSON, no JWT--> FastAPI /chat or /insights
+                                  |
+                                  `--> configured OpenAI-compatible provider
+```
+
+Current UI call sites:
+
+- Dashboard: an opt-in AI button requests seven-day Spring context and calls
+  FastAPI `/insights`.
+- Journal: the assistant requests 30-day Spring context and calls FastAPI
+  `/chat` in `full` context mode.
+
+The Python service is optional. The normal dashboard still has Spring's
+deterministic `/api/insights`, and CRUD/settings/analytics do not depend on
+Python.
+
+For a production Phase 4, the intended safer boundary is server-to-server
+Spring/Python communication with authentication. The current direct browser to
+FastAPI path is local prototype behavior.
+
+### 6.2 FastAPI capabilities
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Provider/model health metadata |
+| `GET` | `/models` | Available provider models |
+| `POST` | `/insights` | Validated LLM insights with deterministic fallback |
+| `POST` | `/chat` | Validated grounded reply with fallback |
+| `POST` | `/vectors/upsert` | Embed and index journal records |
+| `POST` | `/vectors/search` | Search one local user index |
+| `DELETE` | `/vectors/{user_key}` | Delete one local vector store |
+
+The service supports OpenAI-compatible LM Studio, OpenAI, Mistral and Gemini
+endpoints through configuration. Pydantic validates inbound data, model JSON
+and outbound responses.
+
+The local vector layer supports TurboVec/TurboQuant with a NumPy cosine
+fallback. Stores are separated into hashed user-key directories.
+
+The React UI does **not** currently call the vector endpoints or use
+`local_vector` chat mode. RAG/vector retrieval should therefore be described as
+an available Python prototype, not an integrated product feature.
+
+### 6.3 AI security limitation
+
+FastAPI has CORS restrictions but no JWT authentication. Any process that can
+reach port 8100 can call its chat, insight and vector endpoints. It is bound to
+`127.0.0.1` by the supplied launch scripts and must not be exposed to a network
+until service authentication and trusted user identity are added.
+
+---
+
+## 7. Monitoring
+
+The backend exposes Actuator health and Prometheus metrics. The
+`monitoring/docker-compose.yml` stack contains:
+
+- Prometheus 2.55.1 on port 9090.
+- Grafana 11.3.0 on port 3000.
+- Prometheus scraping Spring at
+  `host.docker.internal:8080/actuator/prometheus` every five seconds.
+
+The local Grafana compose credentials are `admin` / `admin`. Change them for
+anything beyond local demonstration.
+
+Run:
+
+```powershell
+docker compose -f monitoring/docker-compose.yml up -d
+```
+
+Spring Boot must be running on the host for Prometheus to scrape it.
+
+---
+
+## 8. Running the project
+
+### 8.1 Prerequisites
+
+- JDK 17 or newer
+- Node.js 18 or newer
+- MySQL 8 running on port 3306
+- Python 3.10 or newer only for the optional AI service
+- An OpenAI-compatible provider only for live AI generation
+- Docker only for the optional monitoring stack
+
+### 8.2 Launch scripts
+
+Windows:
+
+```powershell
+.\start-lifetrack.bat
+```
+
+macOS/Linux:
+
+```bash
+chmod +x start-lifetrack.sh
+./start-lifetrack.sh
+```
+
+The scripts:
+
+1. Check Java and Node.
+2. Check or attempt to start MySQL.
+3. Install frontend dependencies when missing.
+4. Optionally create the Python virtual environment and install AI packages.
+5. Resolve Maven dependencies.
+6. Start Spring Boot, optional FastAPI and Vite.
+7. Open `http://localhost:5173`.
+
+They do not start Prometheus/Grafana or seed demo data.
+
+### 8.3 Manual startup
+
+Backend:
+
+```powershell
+cd backend
+.\mvnw.cmd -DskipTests spring-boot:run
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Optional AI:
+
+```powershell
+cd ai-service
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+Configure a valid provider/model in `ai-service/.env` before expecting live LLM
+responses.
+
+---
+
+## 9. Demo data
+
+`backend/scripts/seed-demo-7-days.sql` supplies current seven-day data for
+existing users with IDs 1 and 2.
+
+It inserts or preserves:
+
+- per-user settings
+- seven daily logs per user
+- transactional and embedded habits
+- at least eight expense rows per user
+- seven journal entries per user
+
+Dates are relative to `CURDATE()`, daily logs use the unique user/date key, and
+duplicate expense/journal/habit rows are checked before insertion. The script
+does not create users or modify credentials.
+
+From the MySQL client:
+
+```sql
+USE lifestyle_ai;
+SOURCE C:/Users/PC/Desktop/V2/New folder/lms-frontend-backend-springboot/backend/scripts/seed-demo-7-days.sql;
+```
+
+Confirm that users 1 and 2 are the intended demo users before running it.
+
+---
+
+## 10. Known gaps and risks
+
+### Functional scope
+
+- No automated backend, frontend or AI tests.
+- Expense and journal list endpoints are unpaginated.
+- The general daily-log list is unpaginated, although date and range filters
+  exist.
+- The Analytics page currently has only the real sleep-duration visualization.
+- `stepTarget` exists; actual steps do not.
+- The profile modal is read-only. User name/email editing is not implemented.
+- Settings are limited to budget, sleep target, step target and water target.
+- No password reset, email verification, refresh token or account deletion.
+- Admin supports counts and a user list, not user mutation or role management.
+- No application Docker image, CI pipeline or production deployment
+  configuration.
+- Vector/RAG endpoints are not integrated into the browser flow.
+
+### Security and deployment
+
+- The MySQL username/password are hardcoded for local development.
+- A default development JWT secret exists in `application.yml`; override
+  `APP_JWT_SECRET` outside local development.
+- JWT is stored in `localStorage`, which is exposed to successful XSS.
+- FastAPI has no authentication and must remain loopback-only.
+- Actuator endpoints are public.
+- Swagger is public.
+- Hibernate `ddl-auto: update` is not a production migration strategy.
+- Local Grafana uses default credentials.
+
+### Documentation drift elsewhere
+
+The following supporting files still contain older wording and must not be used
+as the current architecture source:
+
+- `backend/README.md` still describes MongoDB.
+- `backend/pom.xml` has a MongoDB description even though its dependencies use
+  JPA/MySQL.
+- `frontend/.env` calls the AI URL an unused placeholder even though optional
+  AI buttons currently call it.
+- `ai-service/README.md` says Spring posts to FastAPI; the current code has
+  React call FastAPI after fetching Spring's authenticated context.
+- Historical portions of `integration.md` describe earlier phases and should
+  be read as a journal, not as current state.
+
+This `PROJECT-OVERVIEW.md` is the current architecture reference until those
+supporting files are separately corrected.
+
+---
+
+## 11. Phase 3 presentation boundary
+
+A defensible summary is:
+
+> LifeTrack is a secure multi-user lifestyle platform that stores daily logs,
+> habits, moods, meals, journals, settings and expenses in MySQL. Spring Boot
+> owns authentication, authorization, validation, CRUD, aggregation and
+> deterministic insights. React presents this data. `/api/ai-context` is the
+> trusted aggregation seam for optional Python AI/RAG work in Phase 4.
+
+Safe claims:
+
+- "Users configure a daily step target."
+- "A user has one updatable daily log per date."
+- "Every authenticated resource is scoped to the JWT user."
+- "Displayed user analytics come from Spring and MySQL."
+- "Spring produces deterministic rule-based insights."
+- "Python AI/RAG is an optional, separate Phase 4 layer."
+
+Claims to avoid:
+
+- "LifeTrack tracks actual steps."
+- "All original analytics mockups are implemented."
+- "Spring AI powers LifeTrack."
+- "Spring Boot currently calls the Python service."
+- "RAG is integrated into the current UI."
+- "The application learns and adapts automatically."
