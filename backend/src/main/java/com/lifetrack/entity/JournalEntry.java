@@ -12,6 +12,12 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * A dated free-text reflection and its user-selected mood.
+ *
+ * <p>Entries remain separate from daily logs because users may create and edit
+ * reflections independently of structured wellbeing check-ins.</p>
+ */
 @Entity
 @Table(name = "journal_entries", indexes = {
         @Index(name = "idx_journal_user", columnList = "userId"),

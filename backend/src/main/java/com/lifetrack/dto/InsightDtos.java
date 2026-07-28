@@ -3,6 +3,7 @@ package com.lifetrack.dto;
 import java.time.LocalDate;
 import java.util.List;
 
+/** Contracts returned by the deterministic Spring insight engine. */
 public class InsightDtos {
 
     /** Severity buckets the frontend can colour-code (e.g. green / amber / grey). */
@@ -32,6 +33,7 @@ public class InsightDtos {
             Double metric
     ) {}
 
+    /** Insight collection and the inclusive date window used to produce it. */
     public record InsightsResponse(
             LocalDate from,
             LocalDate to,

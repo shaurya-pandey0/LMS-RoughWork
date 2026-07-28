@@ -1,254 +1,440 @@
-### File 1: `frontend/src/ExpensesPage.jsx`
+# Tracing the Create Expense Feature Through Swagger
 
-The create flow begins in [`ExpensesPage.jsx`](frontend/src/ExpensesPage.jsx#L139).
+This guide demonstrates one complete LifeTrack feature during an interview:
 
-```js
-139: const handleSubmit = async () => {
-140:   const value = parseFloat(amount);
-141:   if (!value || value <= 0) {
-142:     setAmountError('Enter an amount greater than 0');
-143:     document.getElementById('entry-amount')?.focus();
-144:     return;
-145:   }
+1. authenticate with JWT;
+2. create an expense;
+3. prove that MySQL persisted it;
+4. show that analytics consumes the same record;
+5. demonstrate backend validation and user ownership;
+6. update and delete the record.
+
+The entire demonstration can be performed through Swagger UI without using the React frontend.
+
+## What this feature demonstrates
+
+The Expense feature is a useful vertical slice because it crosses every backend layer:
+
+```text
+Swagger HTTP request
+    -> Spring Security and JWT authentication
+    -> ExpenseController
+    -> ExpenseRequest validation
+    -> ExpenseService business rules
+    -> ExpenseRepository
+    -> Hibernate/JPA
+    -> MySQL expenses table
+    -> ExpenseResponse JSON
+    -> AnalyticsService aggregation
 ```
 
-React does only a basic user-experience check: â€œis this a positive number?â€  
-This is not trusted business validationâ€”the backend validates again.
+The authenticated user ID is taken from the JWT. It is never accepted from the request body. This prevents one user from creating, reading, changing, or deleting another user's expenses.
 
-```js
-148: const iso = date || todayIso();
-149: const payload = { date: iso, category, amount: value };
+## Relevant source files
+
+- `backend/src/main/java/com/lifetrack/config/OpenApiConfig.java`
+- `backend/src/main/java/com/lifetrack/config/SecurityConfig.java`
+- `backend/src/main/java/com/lifetrack/security/JwtAuthenticationFilter.java`
+- `backend/src/main/java/com/lifetrack/controller/AuthController.java`
+- `backend/src/main/java/com/lifetrack/controller/ExpenseController.java`
+- `backend/src/main/java/com/lifetrack/dto/ExpenseDtos.java`
+- `backend/src/main/java/com/lifetrack/service/ExpenseService.java`
+- `backend/src/main/java/com/lifetrack/repository/ExpenseRepository.java`
+- `backend/src/main/java/com/lifetrack/entity/Expense.java`
+- `backend/src/main/java/com/lifetrack/exception/GlobalExceptionHandler.java`
+- `backend/src/main/java/com/lifetrack/controller/AnalyticsController.java`
+- `backend/src/main/java/com/lifetrack/service/AnalyticsService.java`
+
+## Before the interview
+
+1. Start MySQL.
+2. Start the current Spring Boot backend on port `8080`.
+3. Open:
+
+```text
+http://localhost:8080/swagger-ui/index.html
 ```
 
-It builds the request payload, for example:
+4. Confirm that Swagger displays the `auth-controller`, `expense-controller`, and `analytics-controller` sections.
+5. Keep one valid user account ready, or register a demonstration account through Swagger.
+
+If an endpoint recently added to the source is absent from Swagger, restart Spring Boot. Compiling does not replace an already-running Java process.
+
+## Step 1: Authenticate
+
+Expand:
+
+```text
+POST /api/auth/login
+```
+
+Select **Try it out** and use a valid account:
 
 ```json
 {
-  "date": "2026-07-27",
-  "category": "Food",
-  "amount": 250
+  "email": "demo@example.com",
+  "password": "password123"
 }
 ```
 
-```js
-158: } else {
-159:   const created = await expenseApi.create(payload);
-160:   const row = {
-161:     id: created.id,
-162:     isoDate: created.date,
-163:     date: isoToShort(created.date),
-164:     category: created.category,
-165:     amount: Number(created.amount)
-166:   };
-167:   setTxns((prev) => [row, ...prev]);
-168: }
-```
+Select **Execute**.
 
-`expenseApi.create(payload)` is the handoff to the HTTP layer. It pauses until Spring Boot replies.
-
-On success, the server returns the saved recordâ€”including its MySQL-generated `id`. React converts it into the shape used by the screen and prepends it to `txns`, causing the expense table/chart to re-render without another fetch.
-
-```js
-163: setAmount('');
-164: setDate('');
-165: setCategory(defaultCategory());
-166: } catch (err) {
-167:   setPageError(err.message || 'Could not save that expense');
-168: }
-```
-
-Finally, it clears the form. If Spring returns an errorâ€”such as an invalid categoryâ€”React displays that backend message.
-
-Type **next** for File 2: the exact `expenseApi.create()` function that turns this payload into the HTTP `POST` request.
-
----
-
-### File 2: [`frontend/src/lib/api.js`](frontend/src/lib/api.js#L104)
-
-- At [line 106](frontend/src/lib/api.js#L106), `expenseApi.create(data)` selects the endpoint: `POST /expenses`.
-
-- At [lines 79â€“83](frontend/src/lib/api.js#L79), that call goes through the shared `api.post` helper.
-
-- At [lines 34â€“50](frontend/src/lib/api.js#L34), the shared request function:
-  - builds the URL using the base address;
-  - serializes the expense payload into JSON;
-  - sets JSON request headers;
-  - reads the logged-in userâ€™s JWT from browser storage;
-  - attaches it as `Authorization: Bearer <token>`;
-  - sends the actual browser HTTP request to Spring Boot at `http://localhost:8080/api/expenses` by default.
-
-- At [lines 59â€“76](frontend/src/lib/api.js#L59), it parses Spring Bootâ€™s response. A non-2xx response becomes an `ApiError`; a successful response returns the saved expense JSON to `ExpensesPage`.
-
-Next is the backend endpoint: the Spring Boot controller that receives `POST /api/expenses`.
-
----
-
-### File 3: [`backend/.../controller/ExpenseController.java`](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L22)
-
-- [Line 23](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L23) maps this controller to `/api/expenses`.
-
-- [Lines 44â€“45](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L44) match the incoming `POST /api/expenses` and deserialize the JSON body into an `ExpenseRequest`.
-
-- The `@Valid` at [line 45](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L45) triggers DTO-level validation before any database work. If required fields or basic constraints fail, Spring returns `400 Bad Request` immediately.
-
-- [Line 47](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L47) gets the user ID from the authenticated JWT sessionâ€”not from browser-provided request dataâ€”and passes both that ID and the validated request to `ExpenseService`.
-
-- [Line 46](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L46) converts the saved entity into a response DTO.
-
-- [Line 48](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L48) returns `201 Created` and that safe response DTO to the browser.
-
-Next file: the request/response DTO definitions, which define exactly what Spring accepts and returns.
-
----
-
-They are not directly â€œcalling each otherâ€ like two JavaScript functions. They communicate through an ordinary **HTTP request over localhost**.
-
-The exact bridge is:
-
-1. React reaches [`api.js` line 45](frontend/src/lib/api.js#L45).
-
-2. The browser runs `fetch(...)`, sending an HTTP request to the URL built from:
-
-   - [`api.js` line 8](frontend/src/lib/api.js#L8): frontendâ€™s backend base URL, normally `http://localhost:8080/api`
-   - [`api.js` line 106](frontend/src/lib/api.js#L106): adds `/expenses`
-
-   So the real request is:
-
-   ```text
-   POST http://localhost:8080/api/expenses
-   ```
-
-3. The browser includes:
-   - JSON request body, assembled at [`api.js` line 48](frontend/src/lib/api.js#L48)
-   - JWT login token in the `Authorization` header at [`api.js` lines 38â€“41](frontend/src/lib/api.js#L38)
-
-4. Spring Boot is running separately as a web server on port `8080`. It receives that URL. Spring examines the path `/api/expenses`, finds the matching mapping at [`ExpenseController.java` line 23](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L23), and runs the `POST` method at [line 44](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L44).
-
-Then the response travels back through that same HTTP connection:
+Expected result:
 
 ```text
-React browser
-  â†’ HTTP POST localhost:8080/api/expenses
-  â†’ Spring Boot controller
-  â†’ response JSON + 201 Created
-  â†’ browser fetch receives it
-  â†’ React updates state and redraws UI
+200 OK
 ```
 
-So the â€œintersectionâ€ is simply the URL contract: **React sends `POST /api/expenses`; Springâ€™s controller declares it handles `POST /api/expenses`.**
+The response contains a JWT and a safe user representation:
 
----
-
-```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ React: ExpensesPage.jsx                                      â”‚
-â”‚ User enters date, category, amount, then presses Save        â”‚
-â”‚                                                              â”‚
-â”‚ handleSubmit() builds: { date, category, amount }            â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                             â”‚
-                             â”‚ expenseApi.create(payload)
-                             â–¼
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ React: lib/api.js                                            â”‚
-â”‚                                                              â”‚
-â”‚ API base: http://localhost:8080/api                          â”‚
-â”‚ Endpoint: /expenses                                          â”‚
-â”‚ Method: POST                                                 â”‚
-â”‚                                                              â”‚
-â”‚ Adds JSON body + Authorization: Bearer <JWT>                 â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                             â”‚
-                             â”‚ HTTP request over localhost
-                             â”‚
-                             â”‚ POST http://localhost:8080/api/expenses
-                             â–¼
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ Spring Boot server â€” port 8080                               â”‚
-â”‚                                                              â”‚
-â”‚ Receives browser request                                     â”‚
-â”‚ Reads and verifies JWT                                       â”‚
-â”‚ Identifies the logged-in user                                â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                             â”‚
-                             â”‚ URL + HTTP method match
-                             â–¼
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ ExpenseController.java                                       â”‚
-â”‚                                                              â”‚
-â”‚ @RequestMapping("/api/expenses")                             â”‚
-â”‚ @PostMapping                                                 â”‚
-â”‚                                                              â”‚
-â”‚ JSON â†’ ExpenseRequest                                        â”‚
-â”‚ @Valid performs basic request validation                     â”‚
-â”‚ Current user ID comes from authenticated JWT                 â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                             â”‚
-                             â”‚ expenseService.create(userId, request)
-                             â–¼
-                   Next: DTO â†’ service â†’ repository â†’ MySQL
+```json
+{
+  "token": "<JWT>",
+  "tokenType": "Bearer",
+  "user": {
+    "id": 1,
+    "fullName": "Demo User",
+    "email": "demo@example.com",
+    "role": "USER"
+  }
+}
 ```
 
----
+Copy only the value of `token`. Select Swagger's **Authorize** button, enter the token, and confirm authorization. Because the configured scheme is HTTP Bearer, Swagger adds the `Bearer` prefix to protected requests.
 
+Interview explanation:
 
-> Yes. From here it is a normal CRUD flow: controller â†’ service â†’ JPA > repository â†’ MySQL â†’ same chain backwards.
+> Login is public, but expense operations require authentication. The JWT filter validates the token and creates the Spring Security principal used by `SecurityUtils.currentUserId()`.
 
-The request reaches MySQL at:
+## Step 2: Create an expense
 
-- [`ExpenseService.java` line 34](backend/src/main/java/com/lifetrack/service/ExpenseService.java#L34) starts the create operation.
-- [Lines 35â€“37](backend/src/main/java/com/lifetrack/service/ExpenseService.java#L35) create the entity, attach the authenticated user ID, validate the category, and copy date/category/amount into it.
-- [`ExpenseService.java` line 38](backend/src/main/java/com/lifetrack/service/ExpenseService.java#L38) calls `expenseRepository.save(expense)`. This is the point at which Spring Data JPA/Hibernate generates and executes the SQL `INSERT`.
-- [`Expense.java` lines 14â€“18](backend/src/main/java/com/lifetrack/entity/Expense.java#L14) map the Java entity to the MySQL `expenses` table.
-- [`Expense.java` lines 21â€“23](backend/src/main/java/com/lifetrack/entity/Expense.java#L21) tell MySQL to generate the ID automatically.
-
-There is no handwritten `INSERT INTO expenses ...` query in this app. JPA generates it from the entity mapping when `save(...)` runs.
-
-The result returns like this:
+Expand:
 
 ```text
-MySQL inserts the row and generates its ID
-  â†“
-expenseRepository.save(expense) returns the saved Expense entity
-  â†“
-ExpenseService.create(...) returns it
-  â†“
-ExpenseController converts it into ExpenseResponse
-  â†“
-Spring serializes it into JSON and sends HTTP 201
-  â†“
-api.js parses JSON
-  â†“
-ExpensesPage adds it to React state and the UI redraws
+POST /api/expenses
 ```
 
-Exact return lines:
+Select **Try it out** and submit:
 
-- [`ExpenseService.java` line 38](backend/src/main/java/com/lifetrack/service/ExpenseService.java#L38): saved entity returns from JPA/MySQL.
-- [`ExpenseController.java` lines 46â€“48](backend/src/main/java/com/lifetrack/controller/ExpenseController.java#L46): converts it into a response and sends `201 Created`.
-- [`ExpenseDtos.java` lines 23â€“30](backend/src/main/java/com/lifetrack/dto/ExpenseDtos.java#L23): chooses exactly which entity fields become response JSON.
-- [`api.js` lines 59â€“76](frontend/src/lib/api.js#L59): browser parses that JSON and returns it to the page.
-- [`ExpensesPage.jsx` lines 159â€“161](frontend/src/ExpensesPage.jsx#L159): React receives the saved record and adds it to `txns`, which redraws the UI.
+```json
+{
+  "date": "2026-07-28",
+  "category": "Food",
+  "amount": 250.0
+}
+```
 
+Use the current date during a live interview if preferred.
 
----
-
-> Final destination is the UI
-
-Yesâ€”the final destination is the UI.
-
-After Spring returns `201 Created`:
+Expected result:
 
 ```text
-Spring response JSON
-  â†’ api.js parses it
-  â†’ ExpensesPage receives `created`
-  â†’ setTxns(...) updates React state
-  â†’ React automatically re-renders affected UI
+201 Created
 ```
 
-The exact UI-update point is [`ExpensesPage.jsx` line 161](frontend/src/ExpensesPage.jsx#L161).
+Example response:
 
-That line inserts the newly returned expense into the `txns` state list. Everything in that page that displays `txns`â€”the expense rows, total, category breakdown, budget percentage, and chartâ€”recalculates during Reactâ€™s re-render and appears on screen.
+```json
+{
+  "id": 42,
+  "date": "2026-07-28",
+  "category": "Food",
+  "amount": 250.0
+}
+```
 
-So MySQL is never accessed by the UI directly. It always returns through Spring Boot, then `api.js`, then React state, then the rendered page.
+Save the returned `id`; later steps use it.
+
+### What happens internally
+
+`ExpenseController.create()`:
+
+- matches `POST /api/expenses`;
+- converts JSON into `ExpenseRequest`;
+- runs Bean Validation through `@Valid`;
+- obtains the user ID from the authenticated principal;
+- calls `ExpenseService.create()`;
+- maps the saved entity to `ExpenseResponse`;
+- returns `201 Created`.
+
+`ExpenseRequest` accepts:
+
+```text
+date      LocalDate; optional, defaults to the backend's current date
+category  non-blank string
+amount    positive number
+```
+
+`ExpenseService` owns the business rules:
+
+- it checks the category against backend-controlled reference vocabulary;
+- it uses `LocalDate.now()` when the date is omitted;
+- it attaches the authenticated user ID;
+- it delegates persistence to `ExpenseRepository`.
+
+Current valid categories are:
+
+```text
+Food
+Housing
+Travel
+Wellness
+Misc
+```
+
+`ExpenseRepository.save()` causes Hibernate to insert a row into the `expenses` table. MySQL generates the primary key because `Expense.id` uses `GenerationType.IDENTITY`.
+
+The API response deliberately excludes `userId` and `createdAt`. They are internal persistence details, not part of the public expense contract.
+
+## Step 3: Prove persistence and date filtering
+
+Expand:
+
+```text
+GET /api/expenses
+```
+
+Set:
+
+```text
+from = 2026-07-28
+to   = 2026-07-28
+```
+
+Select **Execute**.
+
+Expected result:
+
+```text
+200 OK
+```
+
+The returned list should contain the new expense. This request reads the record again from the repository; it is not returning temporary React state.
+
+Date-range behavior:
+
+- both dates are inclusive;
+- results are sorted newest first;
+- if only `to` is supplied, `from` defaults to the first day of that month;
+- if only `from` is supplied, `to` defaults to the backend's current date;
+- `from` after `to` produces `400 Bad Request`.
+
+You can also prove the generated ID directly:
+
+```text
+GET /api/expenses/{id}
+```
+
+Use the ID returned by the create request.
+
+## Step 4: Show downstream analytics
+
+Expand:
+
+```text
+GET /api/analytics
+```
+
+Use the same range:
+
+```text
+from = 2026-07-28
+to   = 2026-07-28
+```
+
+Select **Execute**.
+
+The response should now reflect the created expense in:
+
+- `dailyExpenses`;
+- `expensesByCategory`;
+- `totalExpenses`;
+- `budgetUsagePct`.
+
+This proves that the feature is more than isolated CRUD. `AnalyticsService` queries the same persisted expense rows and performs aggregation in Spring Boot. The frontend only plots the returned values.
+
+Interview explanation:
+
+> The create endpoint writes a normalized expense record. A separate read model aggregates those records for charts. Business calculations stay in Spring, while React remains a presentation layer.
+
+## Step 5: Demonstrate validation
+
+### DTO validation
+
+Run `POST /api/expenses` with a non-positive amount:
+
+```json
+{
+  "date": "2026-07-28",
+  "category": "Food",
+  "amount": 0
+}
+```
+
+Expected result:
+
+```text
+400 Bad Request
+```
+
+`@Positive` rejects the request before the service writes anything.
+
+### Business vocabulary validation
+
+Run the request with an unsupported category:
+
+```json
+{
+  "date": "2026-07-28",
+  "category": "Entertainment",
+  "amount": 100
+}
+```
+
+Expected result:
+
+```text
+400 Bad Request
+```
+
+The DTO can prove that the category is non-blank, but only `ExpenseService` knows whether it belongs to the server-controlled category catalogue. This distinction is useful in an interview:
+
+```text
+DTO validation      -> structural input rules
+Service validation  -> domain and business rules
+Database constraints -> final persistence integrity
+```
+
+`GlobalExceptionHandler` converts validation and domain exceptions into consistent JSON error responses.
+
+### Invalid date range
+
+Run:
+
+```text
+GET /api/expenses?from=2026-07-29&to=2026-07-28
+```
+
+Expected result:
+
+```text
+400 Bad Request
+```
+
+The service rejects an inverted range instead of silently returning misleading data.
+
+## Step 6: Update the expense
+
+Expand:
+
+```text
+PUT /api/expenses/{id}
+```
+
+Use the created ID and submit:
+
+```json
+{
+  "date": "2026-07-28",
+  "category": "Wellness",
+  "amount": 300.0
+}
+```
+
+Expected result:
+
+```text
+200 OK
+```
+
+The service first calls `findByIdAndUserId(id, currentUserId)`. This is important: lookup and ownership enforcement happen in one repository query. It then reapplies the same category and amount rules used during creation.
+
+Run the analytics request again. The totals and category breakdown should reflect the updated record.
+
+## Step 7: Demonstrate ownership
+
+For a longer interview demonstration:
+
+1. copy the expense ID created by User A;
+2. log in as User B and replace the Swagger authorization token;
+3. call `GET`, `PUT`, or `DELETE /api/expenses/{id}` using User A's ID.
+
+Expected result:
+
+```text
+404 Not Found
+```
+
+The repository searches by both ID and authenticated user ID. Returning 404 avoids revealing whether another user's record exists.
+
+Never add `userId` to `ExpenseRequest`. Ownership must continue to come exclusively from the validated JWT.
+
+## Step 8: Delete and verify cleanup
+
+Re-authorize as the original user if the ownership demonstration was performed.
+
+Expand:
+
+```text
+DELETE /api/expenses/{id}
+```
+
+Use the created ID.
+
+Expected result:
+
+```text
+204 No Content
+```
+
+Then call:
+
+```text
+GET /api/expenses/{id}
+```
+
+Expected result:
+
+```text
+404 Not Found
+```
+
+Run the same analytics range once more. The deleted amount should no longer contribute to totals or category aggregation.
+
+## A concise interview narration
+
+> I will demonstrate Expenses as one complete vertical slice. I first authenticate and give Swagger the JWT. I create an expense using only date, category, and amount; user ownership comes from the token rather than the body. The controller validates the request contract, the service applies server-owned category rules and date defaults, and the repository persists the entity through Hibernate to MySQL. I read it back through a date-filtered endpoint to prove persistence, then call Analytics to show that another backend service aggregates the same record. Finally, I demonstrate invalid input, ownership isolation, update, and deletion.
+
+## Common problems during the demonstration
+
+### `401 Unauthorized`
+
+- Swagger has not been authorized;
+- the token expired;
+- the token was copied with quotes;
+- log in again and replace the authorized token.
+
+### Endpoint missing from Swagger
+
+The running Spring process is older than the current source. Stop it and restart the backend. A Maven compile alone does not reload the server.
+
+### `403 Forbidden`
+
+Inspect the actual request in the browser Network panel:
+
+- if `OPTIONS` fails, check the exact frontend origin against CORS configuration;
+- if preflight succeeds but the endpoint is absent from Swagger, the backend process is stale;
+- do not disable JWT security as a workaround.
+
+### `400 Bad Request`
+
+Read the response body. It distinguishes field validation from domain validation. Confirm that:
+
+- amount is greater than zero;
+- category matches the backend reference list;
+- dates use `YYYY-MM-DD`;
+- `from` is not after `to`.
+
+### Created record does not appear in a range
+
+Ensure the create date is inside the inclusive `from` and `to` values used by both the Expense and Analytics requests.

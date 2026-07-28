@@ -6,14 +6,17 @@ import jakarta.validation.constraints.Positive;
 
 import java.time.LocalDate;
 
+/** Request and response contracts for user-owned expense records. */
 public class ExpenseDtos {
 
+    /** Fields clients may supply when creating or replacing an expense. */
     public record ExpenseRequest(
             LocalDate date,
             @NotBlank String category,
             @Positive double amount
     ) {}
 
+    /** Persisted expense representation returned to authenticated clients. */
     public record ExpenseResponse(
             Long id,
             LocalDate date,

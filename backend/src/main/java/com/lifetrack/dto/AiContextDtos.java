@@ -3,6 +3,7 @@ package com.lifetrack.dto;
 import java.util.List;
 import java.util.Map;
 
+/** Contract boundary between the Spring domain layer and Python AI service. */
 public class AiContextDtos {
 
     /**

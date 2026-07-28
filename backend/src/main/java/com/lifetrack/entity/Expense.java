@@ -11,6 +11,12 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * A dated expense owned by one user.
+ *
+ * <p>Category remains server-controlled vocabulary while indexes support the
+ * date-range queries used by expenses and analytics.</p>
+ */
 @Entity
 @Table(name = "expenses", indexes = {
         @Index(name = "idx_expense_user", columnList = "userId"),

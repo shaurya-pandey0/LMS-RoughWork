@@ -20,6 +20,12 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * A user's consolidated activity and wellbeing record for one calendar date.
+ *
+ * <p>The unique user/date constraint makes repeated submissions updates or
+ * merges of the same logical day rather than separate daily records.</p>
+ */
 @Entity
 @Table(
         name = "daily_logs",
@@ -50,6 +56,11 @@ public class DailyLog {
     @Column(length = 30)
     private DayType dayType;
 
+    /**
+     * Legacy habit-name snapshots retained for backward compatibility.
+     * New user-managed habit tracking is persisted by {@link UserHabit} and
+     * {@link DailyHabitCompletion}.
+     */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "daily_log_transactional_habits",
@@ -58,6 +69,7 @@ public class DailyLog {
     @Column(name = "habit")
     private List<String> transactionalHabits = new ArrayList<>();
 
+    /** Second legacy habit collection retained while old records are migrated. */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "daily_log_embedded_habits",

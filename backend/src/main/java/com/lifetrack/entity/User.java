@@ -11,6 +11,12 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
+/**
+ * Authenticated LifeTrack account and its authorization role.
+ *
+ * <p>Lifestyle records reference the account by {@code userId}; the password
+ * stored here is a one-way hash produced by the authentication service.</p>
+ */
 @Entity
 @Table(name = "users")
 public class User {

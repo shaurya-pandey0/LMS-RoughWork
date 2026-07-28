@@ -9,8 +9,10 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Transport contracts for daily-log meals, submissions, and persisted records. */
 public class DailyLogDtos {
 
+    /** Meal name and its incrementally collected food items. */
     public record MealDto(String name, List<String> items) {
         public static MealDto from(DailyLog.Meal meal) {
             return new MealDto(meal.getName(), meal.getItems());
@@ -24,6 +26,12 @@ public class DailyLogDtos {
         }
     }
 
+    /**
+     * Partial daily-log submission.
+     *
+     * <p>Nullable fields are intentional: the merge endpoint accepts check-ins
+     * throughout the day without erasing values that were not resubmitted.</p>
+     */
     public record DailyLogRequest(
             LocalDate date,
             Double sleepHours,
@@ -56,6 +64,7 @@ public class DailyLogDtos {
             String eveningMood
     ) {}
 
+    /** Complete persisted daily log returned after entity-to-contract mapping. */
     public record DailyLogResponse(
             Long id,
             LocalDate date,
@@ -102,4 +111,3 @@ public class DailyLogDtos {
         }
     }
 }
-

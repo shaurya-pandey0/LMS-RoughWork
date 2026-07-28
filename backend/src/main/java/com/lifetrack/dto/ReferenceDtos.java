@@ -4,6 +4,7 @@ import com.lifetrack.config.ReferenceProperties;
 
 import java.util.List;
 
+/** Read-only server-owned vocabulary exposed to frontend controls. */
 public class ReferenceDtos {
 
     /**

@@ -9,6 +9,13 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
+/**
+ * A habit definition owned and named by one user.
+ *
+ * <p>Deactivation is soft: lifecycle timestamps allow historical screens to
+ * determine which habits were available on a past date without deleting their
+ * completion records.</p>
+ */
 @Entity
 @Table(name = "user_habits")
 public class UserHabit {

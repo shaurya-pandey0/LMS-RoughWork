@@ -4,12 +4,16 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+/** Read-only projections produced by the backend analytics engine. */
 public class AnalyticsDtos {
 
+    /** Sleep duration observed on a particular date. */
     public record SleepPoint(LocalDate date, Double hours) {}
 
+    /** Backend-computed total expense amount for a particular date. */
     public record DailyExpensePoint(LocalDate date, double totalAmount) {}
 
+    /** User analytics for the exact date range requested by the client. */
     public record UserAnalyticsResponse(
             List<SleepPoint> sleepPoints,
             List<SleepPoint> weeklySleep,
@@ -22,6 +26,7 @@ public class AnalyticsDtos {
             long journalEntryCount
     ) {}
 
+    /** System-wide aggregate counts visible only to administrators. */
     public record AdminStatsResponse(
             long totalUsers,
             long totalDailyLogs,

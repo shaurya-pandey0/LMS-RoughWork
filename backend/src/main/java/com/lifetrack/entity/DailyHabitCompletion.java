@@ -11,6 +11,13 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * Completion state of one user-defined habit on one calendar date.
+ *
+ * <p>The unique constraint guarantees a single mutable state per
+ * user/habit/date while keeping the habit definition independent from its
+ * historical observations.</p>
+ */
 @Entity
 @Table(
     name = "daily_habit_completions",
