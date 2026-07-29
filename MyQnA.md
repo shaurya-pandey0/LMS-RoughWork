@@ -1,93 +1,420 @@
-### Q1.) how many servers are there right now, how many servers start in this project, and their names
+# LifeTrack Interview Q&A
 
-**4 servers are started by the project launcher, and a 5th (LM Studio) must already be running for AI features.**
+This document describes the current project. The retired MongoDB architecture is
+not used anymore.
 
-| # | Server | Port | Started at |
-| --- | --- | --- | --- |
-| 1 | MongoDB (`mongod`) | 27017 | `start-lifetrack.bat:37` (only if nothing is already listening on 27017 — otherwise it reuses the existing instance) |
-| 2 | Spring Boot backend (`lifetrack-backend`) | 8080 | `start-lifetrack.bat:49` |
-| 3 | FastAPI AI service (uvicorn, `app.main:app`) | 8100 | `start-lifetrack.bat:56` (skipped if `ai-service\.venv` is missing) |
-| 4 | Vite dev server (React frontend) | 5173 | `start-lifetrack.bat:65` |
-| 5 | LM Studio (OpenAI-compatible LLM host) | 1234 | Not started by the project — external app. Target configured in `ai-service/.env:7` (`AI_BASE_URL=http://localhost:1234/v1`) |
+## 1. What is LifeTrack?
 
-Of these, only 2 and 3 are servers written in this repo. 1 and 5 are third-party processes, 4 is a dev-only tooling server (in production the frontend is static files from `npm run build`).
+LifeTrack is a multi-user lifestyle tracking application. Users can record Daily
+Logs, meals, moods, expenses, journals, custom habits and personal targets. Spring
+calculates date-range analytics and deterministic insights. An optional FastAPI
+service provides AI chat, AI-generated insights and natural-language command
+extraction.
 
-Currently running: none that I started or detected — I only compiled and built.
+## 2. What is the current architecture?
 
+The honest description is:
 
-### Q2.) is it microservice architecture yet ?
+> A React client, a Spring Boot modular monolith backed by MySQL, and a separate
+> FastAPI AI sidecar.
 
-**No. It's a monolith plus one standalone auxiliary service.** More accurately: a modular monolith (Spring Boot) alongside a separately deployable stateless helper (FastAPI).
+```text
+React (:5173)
+    -> Spring Boot (:8080)
+    -> Spring Data JPA / Hibernate
+    -> MySQL (:3306)
 
-What makes it not microservices:
-
-- **One service owns all the business domain.** A single Spring Boot artifact (`backend/pom.xml:14`, `lifetrack-backend`) contains every controller — auth, daily logs, expenses, journal, analytics, insights, admin — and all four MongoDB collections live in one database. In microservices each capability would be its own deployable with its own datastore.
-- **No inter-service communication.** The backend has zero calls to the AI service (no `RestTemplate`, `WebClient`, or reference to port 8100 anywhere in `backend/src`). The two services never talk to each other; the browser fans out to both independently (`frontend/src/lib/api.js:8` for Spring, `:129` for FastAPI).
-- **No microservice infrastructure.** No API gateway, no service registry/discovery, no config server, no load balancing, no message broker, no distributed tracing. `backend/pom.xml` has no Spring Cloud dependencies at all.
-- **No independent scaling need or bounded contexts.** The split is by *technology* (Java vs Python for the LLM work), not by business capability.
-
-What is genuinely microservice-flavoured:
-
-- The AI service is independently deployable, versioned separately (`ai-service/app/main.py:57`, version `1.1.0`), has its own config and CORS, and is stateless with respect to the backend.
-- It degrades gracefully when absent — the core app works with the AI service off, which is proper service-boundary discipline.
-
-The honest label is **"two-service architecture"** or "a monolith with an AI sidecar." If asked in an interview, calling it microservices would invite a follow-up you couldn't defend: there's one database, one domain service, and no service-to-service calls.
-
-
-### Q.) okay perfect, now, when swagger runs on browser which shows spring boots api's , does it also means its another server ?
-
-No. Swagger UI is served *by* the same Spring Boot server on port 8080 — not a separate process.
-
-The `springdoc-openapi-starter-webmvc-ui` dependency (`backend/pom.xml`, the springdoc block) adds two things to the existing app: a `/v3/api-docs` endpoint that generates a JSON description of your controllers by reflection, and a `/swagger-ui.html` page that renders that JSON as an interactive page. Both are just additional routes on the same Tomcat instance that's already running your `/api/*` endpoints — confirmed in `SecurityConfig.java`, where they're permitted alongside your real API paths in the same `authorizeHttpRequests` block, not a different security config or a different port.
-
-Same for FastAPI's `/docs` on 8100 — that's Swagger UI too (FastAPI auto-generates it), served by the same uvicorn process, not a 6th server.
-
-
-
-### Q. ) still i am not able to understand , tell like, you mean ai frontent fetches the required data from spring and spring through mongo, now frontend has that data, now it sends it to ai service and then ai service gets back response
-
-Yes, that's exactly right.
-
-```
-1. Browser → Spring:   GET /api/journal
-2. Spring  → Mongo:    query journal_entries collection
-3. Mongo   → Spring:   returns the documents
-4. Spring  → Browser:  JSON response, now sitting in React state (`entries`)
-
-   ... user types a chat message, clicks send ...
-
-5. Browser → AI service:  POST /chat  { context: buildContext(entries), query: "...", ... }
-6. AI service → OpenAI:   forwards a prompt built from that context
-7. OpenAI  → AI service:  reply
-8. AI service → Browser:  { reply, suggestions }
+React
+    -> FastAPI (:8100)
+    -> configured OpenAI-compatible provider
 ```
 
-Steps 1-4 are one round trip, already done before you even open the chat panel — that's just the page loading your journal entries normally. Steps 5-8 are a completely separate round trip, triggered only when you send a chat message. The browser is the only thing present in both. Spring is never involved in step 5 onward, and the AI service never talks to Spring or Mongo directly — it only sees whatever JSON the browser hands it in that one POST body.
+It is not a complete microservice architecture. All trusted LifeTrack business
+domains remain inside one Spring Boot application and one MySQL schema.
 
-That's the entire mechanism: no hidden pipe between the two backends, just the browser holding data from request 1 and reusing it as input to request 2.
+## 3. Which processes and servers are involved?
 
+`start-lifetrack.bat` checks MySQL and launches up to three application processes:
 
+| Process | Port | Launcher behavior |
+| --- | ---: | --- |
+| Spring Boot | `8080` | Started |
+| FastAPI | `8100` | Started when Python and the virtual environment are available |
+| Vite/React development server | `5173` | Started |
+| MySQL | `3306` | Must exist; launcher attempts to start the Windows service |
 
-## why was it done ? #integration.md  was it something special that only frontend should talk to both ? because normally anyone would think backend should have talked to ai right ? was it beasue of simplicity or data security trying to keep user data local or something else. check?
+Optional external processes:
 
+| Process | Port | Purpose |
+| --- | ---: | --- |
+| LM Studio | usually `1234` | Optional local OpenAI-compatible model provider |
+| Prometheus | `9090` | Manually started monitoring container |
+| Grafana | `3000` | Manually started monitoring container |
 
-Let me check whether a rationale was actually written down anywhere, rather than guessing.
+The provider is configurable. FastAPI can use LM Studio, OpenAI, Mistral, Gemini
+or another compatible endpoint. Therefore LM Studio is not always required.
 
-No, it wasn't a deliberate security or locality decision — and it wasn't documented as a decision at all. I looked for a stated rationale and there isn't one. What the docs actually say is narrower:
+## 4. Is Swagger another server?
 
-- `ai-service/README.md:3-5` — "standalone FastAPI microservice... kept completely separate from the Spring Boot backend."
-- `integration.md`, Phase 4 opening — "The AI integration is purely additive — the core app already works without it."
-- The architecture diagram in `integration.md` labels the AI hop "JSON body, no auth needed in dev."
+No. Spring Swagger UI and `/v3/api-docs` are routes served by the existing Spring
+Boot process on port `8080`.
 
-So the honest reconstruction is **path of least change**, not design intent. The AI service was built and live-tested standalone *before* integration (it's listed under "Starting point" as "not yet called from the frontend"). By Phase 4, the frontend already had a working fetch wrapper and all the data loaded in React state. Adding `aiApi` to `lib/api.js` and one call in each of two pages touched zero Java files, needed no new Spring dependency, no HTTP client, no service-to-service auth. Routing through the backend would have meant new controllers, new DTOs, an HTTP client, and re-fetching data Spring already sent to the browser once. Phase 4 was explicitly framed as additive and rollback-safe, and browser-side wiring is the additive option.
+```text
+http://localhost:8080/swagger-ui/index.html
+http://localhost:8080/v3/api-docs
+```
 
-Your instinct is right, though: **backend-to-AI is the conventional choice, and here it would be strictly better.** Reasons:
+FastAPI similarly serves its own `/docs` route from the existing Uvicorn process:
 
-- **Security.** Right now the AI service is unauthenticated and the browser asserts its own `user_key` (`JournalPage.jsx:170`). Anything on the machine can POST to 8100 and claim any identity. If Spring were the caller, the AI service would sit behind the JWT-validated backend, and `user_key` would come from the verified token instead of client-supplied JSON.
-- **API keys.** With OpenAI now wired in, the key lives in the AI service — fine while it's on localhost. But the moment you host this, a browser-callable AI endpoint with no auth is a free proxy to your paid OpenAI account. Backend-mediated calls let you enforce per-user rate limits.
-- **Trusted context.** The context is currently built in the browser from data the browser can freely alter. Spring would build it from Mongo directly, so the grounding data couldn't be tampered with.
-- **Vector store.** Nothing populates it because nothing owns that job. Spring is the natural owner: on journal create/update, push the entry to `/vectors/upsert`. That's the missing piece that would make `local_vector` mode actually work.
+```text
+http://localhost:8100/docs
+```
 
-And to answer the data-locality part directly: **the current shape gives you no privacy benefit.** With OpenAI configured, the journal text goes browser → your AI service → OpenAI regardless of which backend called it. Browser-as-courier doesn't keep anything local; it just means the data crosses an extra unauthenticated hop on the way out.
+Neither Swagger page creates another application server.
 
-So: it was simplicity and integration sequencing. It's defensible as "the AI layer was additive and I kept the blast radius to two files" — but if asked, the stronger answer is knowing why you'd move it behind Spring next.
+## 5. Where is the business logic?
+
+Spring Boot owns trusted application logic:
+
+- JWT authentication and roles;
+- owner-scoped access;
+- request and cross-field validation;
+- CRUD and Daily Log merge rules;
+- date-range queries and analytics;
+- deterministic insights;
+- persisted user settings;
+- trusted AI-context assembly.
+
+FastAPI owns AI-specific behavior:
+
+- Pydantic contracts;
+- prompt construction;
+- provider calls;
+- structured AI-response validation;
+- deterministic AI fallbacks.
+
+React owns interaction, temporary form state, API calls and rendering. It may
+perform usability checks, but MySQL persistence and trusted calculations do not
+belong to React.
+
+## 6. How does JWT authentication work?
+
+```text
+POST /api/auth/login
+    -> AuthController
+    -> AuthService verifies BCrypt password
+    -> JwtService creates token
+    -> React stores the token
+
+Later request:
+Authorization: Bearer <token>
+    -> JwtAuthenticationFilter validates token
+    -> loads UserPrincipal
+    -> stores Authentication in SecurityContext
+    -> controller uses SecurityUtils.currentUserId()
+```
+
+Services and repositories query by both resource ID and authenticated user ID.
+This prevents one ordinary user from requesting another user's records simply by
+changing a URL ID.
+
+## 7. What is the normal CRUD pipeline?
+
+For expense creation:
+
+```text
+React expense form
+    -> POST /api/expenses with JWT
+    -> JwtAuthenticationFilter
+    -> ExpenseController
+    -> validated ExpenseRequest
+    -> ExpenseService
+    -> ExpenseRepository
+    -> MySQL
+    -> ExpenseResponse
+    -> React
+```
+
+DTOs protect the HTTP boundary. Entities represent persistence. Services apply
+rules. Repositories perform owner-scoped database access.
+
+## 8. What is the difference between Daily Log create, merge and update?
+
+- `POST /api/daily-logs` performs an upsert for a user and date using the submitted
+  representation.
+- `POST /api/daily-logs/merge` is for partial check-ins throughout the day.
+  Non-null scalars overwrite, omitted fields remain, and meal items merge.
+- `PUT /api/daily-logs/{id}` edits a known historical record.
+
+The database enforces one Daily Log per user and date. The merge endpoint rejects
+a completely empty request.
+
+## 9. Why can users add Lunch, High Tea or another meal?
+
+Meals are stored as named groups with item lists. The merge service matches meal
+names case-insensitively and creates a new group when no existing name matches.
+The domain is therefore not restricted to four hard-coded meal names.
+
+## 10. How are custom habits represented?
+
+Two facts are stored separately:
+
+- `user_habits`: the user-owned habit definition and active state;
+- `daily_habit_completions`: whether that habit was completed on a particular
+  date.
+
+Users start with no habits and can have at most five active habits. Deactivation
+is soft so historical completions remain meaningful. Historical screens request
+habits for the selected date.
+
+Legacy `transactionalHabits` and `embeddedHabits` collections still exist on
+Daily Log for compatibility. Current habit-consistency insight calculations still
+read those legacy collections; migrating them to the new completion table remains
+technical debt.
+
+## 11. How do date-range analytics work?
+
+React sends `from` and `to` dates:
+
+```text
+GET /api/analytics?from=2026-07-01&to=2026-07-29
+```
+
+Spring:
+
+1. defaults missing dates;
+2. rejects `from > to`;
+3. queries only the authenticated user's records in the inclusive interval;
+4. calculates sleep points, daily expenses, category totals, total spending,
+   budget usage, mood counts and journal count;
+5. returns chart-ready DTOs.
+
+React plots the returned data. It does not recompute those business aggregates.
+The dashboard's weekly sleep widget is intentionally a separate trailing-seven-
+day query.
+
+## 12. Where does the selected date come from?
+
+React formats the user's computer-local date as `YYYY-MM-DD`; it avoids using a
+UTC conversion that could shift the calendar day. Spring accepts `LocalDate`, so
+the application stores a calendar date without a time-zone offset.
+
+If no date is supplied, some Spring operations use the backend machine's
+`LocalDate.now()`. A production deployment should define the application's date
+and time-zone policy explicitly.
+
+## 13. Are there two insight endpoints?
+
+Yes, and they do different jobs:
+
+```text
+insightsApi.list()
+    -> GET http://localhost:8080/api/insights
+    -> Spring rule-based insights
+
+aiApi.insights(payload)
+    -> POST http://localhost:8100/insights
+    -> FastAPI AI insights with rule fallback
+```
+
+The dashboard initially has deterministic Spring insights. Clicking **AI** fetches
+trusted context from Spring and calls the FastAPI endpoint.
+
+## 14. How is AI insight context assembled?
+
+```text
+React --JWT--> GET Spring /api/ai-context
+Spring -> owner-scoped MySQL queries
+Spring -> averages, totals, thresholds, mood counts, journal excerpts
+Spring -> React
+React -> POST FastAPI /insights
+FastAPI -> provider or deterministic fallback
+FastAPI -> React
+```
+
+Spring decides which user's records to read from the authenticated JWT. FastAPI
+does not query MySQL and does not select a user.
+
+`journalExcerpts` are recent, length-limited text excerpts from the user's saved
+journal entries. Spring currently sends at most ten excerpts and truncates each
+to at most 500 characters.
+
+## 15. Why does React currently call both Spring and FastAPI?
+
+It was an incremental integration choice: Spring supplies authenticated facts,
+then React maps that response to the FastAPI contract. This kept the AI service
+optional and separately testable.
+
+It is acceptable for a localhost academic prototype, but not the preferred public
+deployment boundary because FastAPI currently has CORS but no JWT authentication.
+A stronger production design would have Spring call FastAPI server-to-server or
+give the service endpoint its own authentication and rate limits.
+
+## 16. Can the AI read the database directly?
+
+No. The model and FastAPI see only the JSON sent in the current request. They do
+not receive database credentials or unrestricted table access.
+
+This reduces coupling and keeps identity and domain ownership deterministic in
+Spring.
+
+## 17. Will the AI understand JSON?
+
+Yes. The model is instructed using system and user messages containing structured
+context. More importantly, the design does not merely trust free-form output:
+
+- FastAPI validates incoming requests with Pydantic;
+- it requests a structured provider response where supported;
+- it parses and validates the provider result against a Pydantic model;
+- it falls back to deterministic rules when structured insight generation fails.
+
+The model's ability to read JSON does not remove the need for schema validation.
+
+## 18. Who decides the insight cutoffs?
+
+Per-user thresholds are stored in `user_settings`, including:
+
+- analysis period;
+- minimum paired days;
+- low-sleep threshold;
+- sleep target;
+- water target;
+- habit-consistency target;
+- monthly budget.
+
+Spring uses those settings for deterministic insights and places relevant values
+inside AI context. FastAPI rules use the thresholds present in that context. The
+LLM provider settings separately control generation temperature and token limits;
+they do not redefine the user's lifestyle targets.
+
+## 19. What does `prompt.md` contain?
+
+`ai-service/prompt.md` is a development debugging snapshot of the exact serialized
+provider request body. It can include messages, model, temperature, token limit
+and private lifestyle context.
+
+It is overwritten on the next provider request, is not application persistence,
+and must remain Git-ignored.
+
+## 20. How does the natural-language command feature work?
+
+The user explicitly selects one of three modes:
+
+- Chat
+- Create Expense
+- Create Daily Log
+
+Explicit mode selection avoids unreliable intent classification.
+
+For a command:
+
+```text
+natural-language text
+    -> POST FastAPI /command
+    -> Pydantic request validation
+    -> structured extraction or deterministic fallback
+    -> Pydantic-validated draft
+    -> React review card
+    -> user confirms
+    -> Spring expense create or Daily Log merge
+    -> Spring validates again
+    -> MySQL
+```
+
+FastAPI does not persist the draft. If an expense amount or recognizable Daily
+Log field is missing, it asks for clarification. The current expense extractor
+may use `Misc` when no recognized category is available, so confirmation remains
+important.
+
+## 21. Did the command feature require a database change?
+
+No. It produces payloads for the existing Expense and Daily Log Spring contracts.
+The existing Spring services remain the only persistence path.
+
+## 22. What is stored in MySQL?
+
+The seven main entity tables are:
+
+```text
+users
+daily_logs
+expenses
+journal_entries
+user_settings
+user_habits
+daily_habit_completions
+```
+
+Two additional legacy element-collection tables store Daily Log habit-name
+snapshots. Meals are converted to JSON text inside the Daily Log table.
+
+Because Hibernate uses `ddl-auto: update`, an existing development database may
+also retain obsolete columns or tables that Hibernate does not safely remove.
+
+## 23. Why was MySQL selected instead of keeping MongoDB?
+
+The current domain benefits from relational constraints, owner/date uniqueness,
+structured reporting and JPA repository queries. The migration also makes the
+academic entity and persistence design easier to demonstrate.
+
+MySQL does not automatically make the design correct. Some current relationships
+still use raw owner ID columns rather than full JPA associations and database
+foreign keys.
+
+## 24. How does monitoring work?
+
+```text
+Spring Actuator
+    -> Micrometer Prometheus endpoint
+    -> Prometheus scrapes every 5 seconds
+    -> Grafana queries Prometheus
+```
+
+Prometheus and Grafana are optional Docker containers and are not started by
+`start-lifetrack.bat`. Grafana does not access the LifeTrack business database.
+See `Grafana addation.md` for setup and PromQL examples.
+
+## 25. Is this test-driven development?
+
+Not across the whole project yet. The FastAPI command endpoint has automated tests
+for successful extraction and clarification behavior. Spring controller/service
+tests and React component tests still need to be added.
+
+The honest interview answer is:
+
+> Automated testing has begun around a new high-risk AI boundary, but the project
+> does not yet claim complete TDD or sufficient regression coverage.
+
+## 26. What are the main current limitations?
+
+- FastAPI is unauthenticated and intended for loopback development.
+- AI context supports useful aggregates but not proven causal correlations.
+- new habit completion entities are not yet the source of habit-consistency
+  insights;
+- step target is manually entered; there is no smartwatch integration;
+- several relationships use raw ID columns instead of complete foreign-key/JPA
+  associations;
+- Spring and React automated test coverage is incomplete;
+- local development credentials must be replaced before deployment.
+
+## 27. What is the strongest one-minute architecture answer?
+
+> LifeTrack is a secure multi-user lifestyle platform. React owns interaction and
+> rendering. Spring Boot is the trusted application core: it authenticates JWTs,
+> scopes every record to its owner, validates DTOs, applies business rules,
+> persists through JPA to MySQL, calculates analytics and assembles AI context.
+> FastAPI is an optional AI sidecar that validates Pydantic contracts, constructs
+> prompts, communicates with an OpenAI-compatible provider and validates the
+> response. React currently orchestrates the AI call, and the user must confirm
+> AI-generated command drafts before Spring persists them.
+
+## Related documents
+
+- `docs/PROJECT-STORY.md`: why the architecture evolved
+- `PROJECT-OVERVIEW.md`: current repository reference
+- `docs/backend-presentation-plan.md`: interview presentation order
+- `API Authentication/Tracing JWT Authentication.md`
+- `API Create Expense/Tracing Create Expense API.md`
+- `API Daily Log and Habits/Tracing Daily Log and Habits.md`
+- `API Analytics/Tracing Date Range Analytics.md`
+- `API AI Insights/Tracing AI Insights API.md`

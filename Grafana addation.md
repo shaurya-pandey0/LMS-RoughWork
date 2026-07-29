@@ -1,50 +1,265 @@
-Quick correction: Grafana itself isn't a Maven dependency — it's a separate server (like Mongo). The pom.xml part is Actuator + Micrometer's Prometheus registry; Grafana + Prometheus run alongside as their own processes. I'll wire all three.
+# LifeTrack Monitoring with Actuator, Prometheus and Grafana
 
-Adding Actuator + Micrometer Prometheus registry to pom.xml, exposing endpoints in application.yml, then Prometheus + Grafana as Docker containers (no install needed) scraping/visualizing it.
+## Purpose
 
-Now Prometheus (scrapes Spring's metrics) and Grafana (visualizes them), as Docker containers alongside your existing services — no manual install needed if Docker Desktop is present.
+LifeTrack uses three monitoring layers:
 
-Verifying the backend still compiles with the new dependencies:
+```text
+Spring Boot Actuator
+    -> exposes application metrics
+Prometheus
+    -> scrapes and stores those metrics every 5 seconds
+Grafana
+    -> queries Prometheus and displays dashboards
+```
 
-I ran that offline earlier by habit — needs to hit the network to fetch the two new jars once, then it'll cache locally.
+Grafana is not a Maven dependency and it does not read the LifeTrack MySQL
+database. It is a separate visualization server. Prometheus is also a separate
+server. Only Actuator and Micrometer run inside Spring Boot.
 
-Downloaded and BUILD SUCCESS. Everything's in place.
+Monitoring observes the application. It does not create expenses, Daily Logs,
+journals or other business records.
 
-**What I changed:**
-- `backend/pom.xml` — added `spring-boot-starter-actuator` and `micrometer-registry-prometheus`.
-- `backend/src/main/resources/application.yml` — exposed `/actuator/health`, `/actuator/metrics`, `/actuator/prometheus`.
-- `monitoring/prometheus.yml` + `monitoring/docker-compose.yml` — Prometheus scrapes your backend every 5s, Grafana visualizes it. Both run as Docker containers, no manual install.
+## Current implementation
 
-**To see it:**
-1. Start your backend as usual (`mvnw spring-boot:run` or via `start-lifetrack.bat`).
-2. `docker compose up -d` inside the `monitoring` folder (needs Docker Desktop installed).
-3. Open `http://localhost:3000` (Grafana, login `admin`/`admin`) → Add data source → Prometheus → URL `http://prometheus:9090` → Save.
-4. Import a ready-made dashboard: "+" → Import → dashboard ID **4701** ("JVM (Micrometer)") — instant graphs for HTTP request rate, latency, JVM memory, GC, thread count, per every request your backend handles.
+| Component | Location | Responsibility |
+| --- | --- | --- |
+| Spring Boot Actuator | `backend/pom.xml` | Health and application metrics |
+| Micrometer Prometheus registry | `backend/pom.xml` | Converts metrics into Prometheus format |
+| Actuator configuration | `backend/src/main/resources/application.yml` | Exposes selected endpoints and adds the application tag |
+| Prometheus configuration | `monitoring/prometheus.yml` | Scrapes Spring every 5 seconds |
+| Docker Compose | `monitoring/docker-compose.yml` | Runs Prometheus and Grafana |
 
-Hit a few of your API endpoints (login, expenses, journal) and watch the request-rate graph move live — that's your "visual representation for every request."
+The exposed Spring endpoints are:
 
-One thing to flag: `/actuator/prometheus` is currently open with no auth, same as Swagger. Fine for a local demo; don't expose it publicly as-is.
+```text
+GET http://localhost:8080/actuator/health
+GET http://localhost:8080/actuator/metrics
+GET http://localhost:8080/actuator/prometheus
+```
 
+The monitoring servers are:
 
----
-I can start Docker Desktop for you, but I can't click through its GUI startup, so I need to launch it and then poll until the engine responds.
+```text
+Prometheus: http://localhost:9090
+Grafana:    http://localhost:3000
+```
 
-Launched. Docker Desktop's engine takes 30-90 seconds to come up on first start — polling now.
+## Starting monitoring
 
-Docker engine is up. Now starting Prometheus + Grafana.
+Prerequisites:
 
-Both containers are up: `lifetrack-prometheus` and `lifetrack-grafana` started successfully. Confirming they're actually running (not crash-looping) and Prometheus can see your backend.
+- Docker Desktop is running.
+- Spring Boot is running on port `8080`.
+- Ports `3000` and `9090` are available.
 
-Both are up and running:
+From the repository root:
 
-- **Prometheus**: `http://localhost:9090`
-- **Grafana**: `http://localhost:3000` (login `admin` / `admin`)
+```powershell
+Set-Location monitoring
+docker compose up -d
+docker compose ps
+```
 
-Note: Prometheus can only actually scrape metrics once your Spring Boot backend is running on port 8080 (with the actuator dependency we added earlier). If the backend isn't up right now, Prometheus will just show the target as "down" until you start it — that's expected, not an error.
+`start-lifetrack.bat` does not start Prometheus or Grafana. They must be started
+separately with this Compose command.
 
-Next steps in Grafana:
-1. Go to `http://localhost:3000`, log in with `admin`/`admin`.
-2. Add a data source → Prometheus → URL `http://prometheus:9090` (use the container name, not `localhost`, since Grafana is querying from inside its own container).
-3. Dashboards → Import → dashboard ID **4701** → select your Prometheus data source → Import.
+## Verifying each connection
 
-Once your backend is running and you hit a few endpoints, that dashboard will show live request-rate, latency, and JVM graphs.
+### 1. Verify Spring metrics
+
+Open:
+
+```text
+http://localhost:8080/actuator/health
+http://localhost:8080/actuator/prometheus
+```
+
+The health endpoint should report `UP`. The Prometheus endpoint should return
+plain-text metric names such as JVM, process and HTTP server measurements.
+
+### 2. Verify Prometheus can reach Spring
+
+Open:
+
+```text
+http://localhost:9090/targets
+```
+
+The `lifetrack-backend` target should be `UP`.
+
+Prometheus runs inside Docker while Spring runs directly on Windows. Therefore
+`monitoring/prometheus.yml` targets:
+
+```text
+host.docker.internal:8080
+```
+
+Using `localhost:8080` inside the Prometheus container would incorrectly point
+back to the Prometheus container itself.
+
+### 3. Connect Grafana to Prometheus
+
+1. Open `http://localhost:3000`.
+2. Log in with the local development credentials:
+   `admin` / `admin`.
+3. Open **Connections → Data sources**.
+4. Add **Prometheus**.
+5. Set the URL to:
+
+   ```text
+   http://prometheus:9090
+   ```
+
+6. Select **Save & test**.
+
+Grafana uses the Compose service name `prometheus` because both containers share
+the Compose network.
+
+## Useful PromQL queries
+
+Generate some traffic first by logging in and opening Expenses, Daily Log,
+Analytics and Journal.
+
+### Is Spring reachable?
+
+```promql
+up{job="lifetrack-backend"}
+```
+
+Expected value: `1`.
+
+### Requests per second
+
+```promql
+sum(rate(http_server_requests_seconds_count{application="lifestyle-ai-backend"}[1m]))
+```
+
+### Requests grouped by URI and status
+
+```promql
+sum by (method, uri, status) (
+  rate(http_server_requests_seconds_count{application="lifestyle-ai-backend"}[5m])
+)
+```
+
+### Average request duration
+
+```promql
+sum(rate(http_server_requests_seconds_sum{application="lifestyle-ai-backend"}[5m]))
+/
+sum(rate(http_server_requests_seconds_count{application="lifestyle-ai-backend"}[5m]))
+```
+
+### JVM heap memory in megabytes
+
+```promql
+sum(jvm_memory_used_bytes{application="lifestyle-ai-backend", area="heap"})
+/ 1024 / 1024
+```
+
+### Process CPU usage
+
+```promql
+process_cpu_usage{application="lifestyle-ai-backend"} * 100
+```
+
+Prometheus metric availability depends on the current Spring/Micrometer version.
+Use `http://localhost:8080/actuator/prometheus` or Prometheus autocomplete to
+confirm exact names before creating a panel.
+
+## Suggested interview dashboard
+
+Create four small panels:
+
+1. Backend availability: `up{job="lifetrack-backend"}`
+2. Requests per second
+3. Requests grouped by status
+4. JVM heap memory
+
+Then call a Spring endpoint from Swagger and show:
+
+```text
+Swagger request
+    -> Spring controller
+    -> Micrometer records the HTTP measurement
+    -> Prometheus scrapes it
+    -> Grafana displays the updated series
+```
+
+This demonstrates observability around an API request. It does not mean Grafana
+traces the internal controller, service and repository methods individually.
+
+## Stopping monitoring
+
+To stop containers while preserving their current container state:
+
+```powershell
+docker compose stop
+```
+
+To restart them:
+
+```powershell
+docker compose start
+```
+
+To remove the containers:
+
+```powershell
+docker compose down
+```
+
+The current Compose file does not define persistent Grafana or Prometheus volumes.
+Removing the containers can therefore remove locally configured dashboards and
+stored monitoring data.
+
+## Troubleshooting
+
+### Prometheus target is DOWN
+
+- Confirm Spring is running on port `8080`.
+- Open `/actuator/prometheus` directly.
+- Confirm Docker supports `host.docker.internal`.
+- Check `docker compose logs prometheus`.
+
+### Grafana cannot connect to Prometheus
+
+- Use `http://prometheus:9090`, not `http://localhost:9090`, in the Grafana data
+  source.
+- Confirm both containers are running with `docker compose ps`.
+- Check `docker compose logs grafana`.
+
+### Port 3000 or 9090 is already in use
+
+Stop the conflicting process or change the host side of the relevant port mapping
+in `monitoring/docker-compose.yml`.
+
+### Graphs are empty
+
+- Generate requests against Spring.
+- Increase the panel time range.
+- Confirm the Prometheus target is `UP`.
+- Verify the metric name in Prometheus before using it in Grafana.
+
+## Security and production limitations
+
+The current setup is for local development and academic demonstration:
+
+- `/actuator/**` is permitted without JWT by `SecurityConfig`.
+- Grafana uses default development credentials.
+- Prometheus and Grafana ports are exposed on the host.
+- monitoring data and dashboards have no configured persistent volume.
+- TLS and service authentication are not configured.
+
+Before public deployment, restrict Actuator exposure, secure Grafana, add network
+controls and authentication, use secrets instead of committed defaults, and add
+persistent volumes where required.
+
+## Interview answer
+
+> Actuator instruments the Spring Boot process, Micrometer exports those
+> measurements in Prometheus format, Prometheus periodically scrapes and stores
+> them, and Grafana queries Prometheus to visualize availability, traffic,
+> latency and JVM behavior. Grafana never replaces MySQL and does not execute
+> LifeTrack business logic.
