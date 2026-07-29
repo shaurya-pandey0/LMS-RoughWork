@@ -205,4 +205,5 @@ export const aiApi = {
   health: () => aiRequest('/health', undefined, { method: 'GET' }),
   chat: (payload) => aiRequest('/chat', payload),
   insights: (payload) => aiRequest('/insights', payload),
+  command: (payload) => aiRequest('/command', payload),
 };

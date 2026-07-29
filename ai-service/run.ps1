@@ -14,4 +14,4 @@ if (-not (Test-Path ".env")) {
     Write-Host "Created .env from .env.example — edit it to set your provider/key."
 }
 
-& ".\.venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+& ".\.venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload

@@ -233,3 +233,70 @@ class VectorSearchResponse(BaseModel):
 class VectorDeleteResponse(BaseModel):
     user_key_hash: str
     deleted: bool
+
+
+# ---------------------------------------------------------------------------
+# /command
+# ---------------------------------------------------------------------------
+class CommandTarget(str, Enum):
+    CHAT = "chat"
+    EXPENSE = "expense"
+    DAILY_LOG = "daily_log"
+
+
+class CommandStatus(str, Enum):
+    SUCCESS = "success"
+    CLARIFICATION_NEEDED = "clarification_needed"
+    ERROR = "error"
+
+
+class CommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: CommandTarget
+    text: str = Field(min_length=1, max_length=4000)
+    date: str = Field(min_length=1, max_length=32, description="User's PC-local date (YYYY-MM-DD)")
+    history: Optional[List[ChatMessage]] = Field(default_factory=list, description="Recent conversation turns")
+    model: Optional[str] = Field(default=None, description="Override LLM model")
+
+
+class ExtractedExpensePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: Optional[str] = Field(default=None, description="Date in YYYY-MM-DD format")
+    category: Optional[str] = Field(default=None, description="Category name e.g. Food, Transport, Utilities, etc.")
+    amount: Optional[float] = Field(default=None, gt=0, description="Expense amount (strictly positive)")
+
+
+class ExtractedMeal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, description="Meal name e.g. Breakfast, Lunch, High Tea, Dinner, Snacks, Brunch")
+    items: List[str] = Field(default_factory=list, description="Food items")
+
+
+class ExtractedDailyLogPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: Optional[str] = Field(default=None, description="Date in YYYY-MM-DD format")
+    sleepHours: Optional[float] = Field(default=None, ge=0, le=24)
+    stepTarget: Optional[int] = Field(default=None, gt=0)
+    waterIntake: Optional[float] = Field(default=None, ge=0)
+    sleepQuality: Optional[int] = Field(default=None, ge=1, le=5)
+    stressLevel: Optional[int] = Field(default=None, ge=1, le=5)
+    energyLevel: Optional[int] = Field(default=None, ge=1, le=5)
+    productivityLevel: Optional[int] = Field(default=None, ge=1, le=5)
+    dayType: Optional[str] = Field(default=None, description="STUDY_WORK, DAY_OFF, TRAVEL, SICK, UNUSUAL")
+    transactionalHabits: Optional[List[str]] = Field(default=None)
+    embeddedHabits: Optional[List[str]] = Field(default=None)
+    meals: Optional[List[ExtractedMeal]] = Field(default=None)
+    morningMood: Optional[str] = Field(default=None)
+    afternoonMood: Optional[str] = Field(default=None)
+    eveningMood: Optional[str] = Field(default=None)
+
+
+class CommandResponse(BaseModel):
+    target: CommandTarget
+    status: CommandStatus
+    payload: Optional[Dict] = None
+    message: str
